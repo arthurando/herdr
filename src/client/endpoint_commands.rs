@@ -16,6 +16,7 @@ struct QueuedCommand {
     generation: u64,
     boot_id: String,
     request: Box<Request>,
+    trace: Option<crate::client::latency_trace::Token>,
 }
 
 struct InFlightCommand {
@@ -24,6 +25,7 @@ struct InFlightCommand {
     request_id: String,
     response: Vec<u8>,
     sent_at: Instant,
+    trace: Option<crate::client::latency_trace::Token>,
 }
 
 pub(super) struct EndpointCommandResult {
@@ -81,6 +83,7 @@ impl EndpointCommands {
             .or_default()
             .queued
             .push_back(QueuedCommand {
+                trace: crate::client::latency_trace::token(),
                 generation,
                 boot_id,
                 request,
@@ -119,7 +122,11 @@ impl EndpointCommands {
                 cancelled.push(request_id);
                 continue;
             }
+            if let Some(trace) = queued.trace {
+                trace.mark("command_queue", lane.queued.len(), !endpoint_id.is_local());
+            }
             lane.in_flight = Some(InFlightCommand {
+                trace: queued.trace,
                 generation: queued.generation,
                 boot_id: queued.boot_id,
                 request_id,
@@ -231,6 +238,13 @@ impl EndpointCommands {
         }
 
         let in_flight = lane.in_flight.take().expect("checked in-flight command");
+        if let Some(trace) = in_flight.trace {
+            trace.mark(
+                "command_total",
+                in_flight.response.len(),
+                !endpoint_id.is_local(),
+            );
+        }
         let result = parse_response(&in_flight.request_id, &in_flight.response);
         Ok(Some(EndpointCommandResult {
             endpoint_id: endpoint_id.clone(),
@@ -311,6 +325,7 @@ mod tests {
                 endpoint(),
                 EndpointCommandLane {
                     in_flight: Some(InFlightCommand {
+                        trace: None,
                         generation: 1,
                         boot_id: "boot-a".into(),
                         request_id: "request-a".into(),
@@ -448,6 +463,7 @@ mod tests {
             remote.clone(),
             EndpointCommandLane {
                 in_flight: Some(InFlightCommand {
+                    trace: None,
                     generation: 2,
                     boot_id: "boot-b".into(),
                     request_id: "request-b".into(),
@@ -488,6 +504,7 @@ mod tests {
             .unwrap()
             .queued
             .push_back(QueuedCommand {
+                trace: crate::client::latency_trace::token(),
                 generation: 1,
                 boot_id: "boot-a".into(),
                 request: Box::new(Request {
@@ -501,6 +518,7 @@ mod tests {
             remote.clone(),
             EndpointCommandLane {
                 queued: VecDeque::from([QueuedCommand {
+                    trace: None,
                     generation: 2,
                     boot_id: "boot-b".into(),
                     request: Box::new(Request {
@@ -548,6 +566,7 @@ mod tests {
             .unwrap()
             .queued
             .push_back(QueuedCommand {
+                trace: crate::client::latency_trace::token(),
                 generation: 1,
                 boot_id: "boot-a".into(),
                 request: Box::new(Request {

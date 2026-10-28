@@ -329,7 +329,8 @@ fn connect_once(
         ));
     }
     let reader = stream.try_clone()?;
-    let writer = NativeEndpointTransport::with_lifetime(stream, lifetime)?;
+    let writer = NativeEndpointTransport::with_lifetime(stream, lifetime)?
+        .with_remote(!endpoint_id.is_local());
     Ok(EndpointSupervisorEvent::Connected {
         endpoint_id,
         generation,

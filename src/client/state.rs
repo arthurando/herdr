@@ -326,6 +326,7 @@ impl ClientState {
         &mut self,
         patch: shell::ClientComposedSurfacePatch,
     ) -> io::Result<bool> {
+        let _latency = super::latency_trace::span("present_patch", 1, false);
         if self.presentation_frozen
             || self.repaint_pending
             || (self.kitty_graphics_enabled && !self.pending_native_cleanup.is_empty())
@@ -558,6 +559,7 @@ impl ClientState {
         writer: &mut impl io::Write,
         frame_data: impl Into<frame_output::ComposedFrame>,
     ) -> bool {
+        let _latency = super::latency_trace::span("present_frame", 1, false);
         if self.presentation_frozen {
             return false;
         }

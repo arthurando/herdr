@@ -29,6 +29,7 @@ mod frame_output_tests;
 mod handshake;
 mod image_files;
 mod input;
+mod latency_trace;
 mod loop_config;
 mod notifications;
 mod shell;
@@ -1133,7 +1134,27 @@ async fn run_client_loop(
                 }
             }
             #[cfg(windows)]
-            ClientLoopEvent::StdinEvents(events) => {
+            ClientLoopEvent::StdinEvents(events, trace) => {
+                let remote = !write_stream.active_id().is_local();
+                if let Some(trace) = trace {
+                    trace.mark("input_queue", events.len(), remote);
+                }
+                let _latency = latency_trace::span("input_route", events.len(), remote);
+                for event in &events {
+                    let category = match event {
+                        crate::protocol::ClientInputEvent::Mouse {
+                            kind:
+                                crate::protocol::ClientMouseKind::ScrollUp
+                                | crate::protocol::ClientMouseKind::ScrollDown,
+                            ..
+                        } => "input_wheel",
+                        crate::protocol::ClientInputEvent::Mouse { .. } => "input_mouse",
+                        crate::protocol::ClientInputEvent::Key { .. }
+                        | crate::protocol::ClientInputEvent::TextCommit(_) => "input_keyboard",
+                        _ => "input_other",
+                    };
+                    latency_trace::mark(category, 1, remote);
+                }
                 let image_bridge_active = endpoint_accepts_local_images(
                     is_remote_client,
                     write_stream.active_id(),
@@ -1428,7 +1449,13 @@ async fn run_client_loop(
                 endpoint_id,
                 generation,
                 message,
+                trace,
             } => {
+                let remote = !endpoint_id.is_local();
+                if let Some(trace) = trace {
+                    trace.mark("server_queue", 1, remote);
+                }
+                let _latency = latency_trace::span("server_dispatch", 1, remote);
                 if !write_stream.accepts(&endpoint_id, generation) {
                     continue;
                 }

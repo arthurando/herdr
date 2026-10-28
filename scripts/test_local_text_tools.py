@@ -21,6 +21,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--stable', required=True)
 parser.add_argument('--candidate', required=True)
 parser.add_argument('--output', required=True)
+parser.add_argument('--latency-trace')
 args = parser.parse_args()
 root = Path(tempfile.mkdtemp(prefix='herdr-local-tools-'))
 env = {k: v for k, v in os.environ.items() if not k.startswith('HERDR_')}
@@ -29,6 +30,7 @@ Path(env['APPDATA']).mkdir(); Path(env['LOCALAPPDATA']).mkdir()
 config = root/'config.toml'
 config.write_text('onboarding = false\n[terminal]\ndefault_shell = "cmd.exe"\n[update]\nversion_check = false\nmanifest_check = false\n[ui.toast]\ndelivery = "off"\n[ui.sound]\nenabled = false\n', encoding='utf-8')
 env['HERDR_CONFIG_PATH'] = str(config)
+if args.latency_trace: env['HERDR_LATENCY_TRACE'] = args.latency_trace
 session = 'local-tools-proof'
 ansi = re.compile(r'\x1b\](?:[^\x1b\x07]|\x1b(?!\\))*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]')
 receipt = {'root': str(root), 'candidate': args.candidate, 'checks': {}}

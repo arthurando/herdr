@@ -169,6 +169,7 @@ struct WindowsInputTraceBatch {
 struct WindowsInputHandoff {
     pending: VecDeque<Vec<crate::protocol::ClientInputEvent>>,
     backpressured: bool,
+    pending_trace: VecDeque<Option<crate::client::latency_trace::Token>>,
 }
 
 #[cfg(windows)]
@@ -177,10 +178,12 @@ impl WindowsInputHandoff {
         if events.is_empty() {
             return;
         }
+        let trace = crate::client::latency_trace::token();
         if self.backpressured {
-            self.push_backpressured(events);
+            self.push_backpressured(events, trace);
         } else {
             self.pending.push_back(events);
+            self.pending_trace.push_back(trace);
         }
     }
 
@@ -197,14 +200,19 @@ impl WindowsInputHandoff {
                     let Some(events) = self.pending.pop_front() else {
                         continue;
                     };
-                    permit.send(ClientLoopEvent::StdinEvents(events));
+                    let trace = self.pending_trace.pop_front().flatten();
+                    if let Some(trace) = trace {
+                        trace.mark("console_handoff", self.pending.len(), false);
+                    }
+                    permit.send(ClientLoopEvent::StdinEvents(events, trace));
                 }
                 Err(mpsc::error::TrySendError::Full(_)) => {
                     if !self.backpressured {
                         self.backpressured = true;
                         let pending = std::mem::take(&mut self.pending);
-                        for events in pending {
-                            self.push_backpressured(events);
+                        let traces = std::mem::take(&mut self.pending_trace);
+                        for (events, trace) in pending.into_iter().zip(traces) {
+                            self.push_backpressured(events, trace);
                         }
                     }
                     return true;
@@ -214,16 +222,24 @@ impl WindowsInputHandoff {
         }
     }
 
-    fn push_backpressured(&mut self, events: Vec<crate::protocol::ClientInputEvent>) {
+    fn push_backpressured(
+        &mut self,
+        events: Vec<crate::protocol::ClientInputEvent>,
+        trace: Option<crate::client::latency_trace::Token>,
+    ) {
         if let Some(previous) = self.pending.back_mut() {
             if let ([previous_event], [next_event]) = (previous.as_slice(), events.as_slice()) {
                 if windows_mouse_motion_can_replace(previous_event, next_event) {
                     *previous = events;
+                    if let Some(previous_trace) = self.pending_trace.back_mut() {
+                        *previous_trace = trace;
+                    }
                     return;
                 }
             }
         }
         self.pending.push_back(events);
+        self.pending_trace.push_back(trace);
     }
 }
 
@@ -2140,7 +2156,7 @@ mod tests {
         let mut shortcut_preserved = false;
         while !handoff.pending.is_empty() {
             assert!(handoff.try_flush(&event_tx));
-            let Ok(ClientLoopEvent::StdinEvents(events)) = event_rx.try_recv() else {
+            let Ok(ClientLoopEvent::StdinEvents(events, _)) = event_rx.try_recv() else {
                 panic!("expected retained Windows input events");
             };
             assert_eq!(events.len(), 1, "logical input batches must stay separate");

@@ -136,6 +136,11 @@ impl PendingEndpointActivation {
     }
 
     fn start_prepared(&mut self, endpoints: &mut EndpointRegistry) -> Result<(), String> {
+        super::super::latency_trace::mark(
+            "activation_start",
+            self.epoch as usize,
+            !self.target.endpoint_id.is_local(),
+        );
         let source_is_target = self.source.endpoint_id == self.target.endpoint_id;
         // Local must not depend on a remote acknowledgement to become usable.
         if source_is_target || !self.source_available || self.target.endpoint_id.is_local() {
@@ -915,6 +920,11 @@ impl PendingEndpointActivation {
             ..
         } = &self.phase
         {
+            super::super::latency_trace::mark(
+                "activation_ready",
+                self.epoch as usize,
+                !self.target.endpoint_id.is_local(),
+            );
             return Ok((**completion).clone());
         }
 
@@ -983,6 +993,11 @@ impl PendingEndpointActivation {
         endpoints: &mut EndpointRegistry,
         resize: crate::protocol::ClientMessage,
     ) -> Result<(), String> {
+        super::super::latency_trace::mark(
+            "activation_target",
+            self.epoch as usize,
+            !self.target.endpoint_id.is_local(),
+        );
         let request_id = format!("client-shell-surface:{}:on", self.epoch);
         self.deadline = Instant::now() + ACTIVATION_TIMEOUT;
         // A transport may fail after writing any baseline or surface message. Enter the target

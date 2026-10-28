@@ -64,3 +64,28 @@ user-session handoff. Retain the stable executable for client-only rollback.
 Stable v0.9.5 excludes pane.read and pane.send_input from the client-shell lane.
 Do not infer lane support from the CLI API. Compose uses the existing Paste input
 event and retains its draft; queue admission is not remote acceptance.
+
+## Normal interaction latency trace
+
+The optional HERDR_LATENCY_TRACE path enables180seconds of numeric-only client
+telemetry. The path must not exist. Data uses a bounded4096-event queue and a
+separate writer thread; the stop record reports dropped events. No keys, text,
+clipboard content, endpoint labels or request arguments enter this format.
+Input tokens start before the Windows handoff queue. Command tokens span enqueue
+and response. Writer batches report queue and socket-write duration with local or
+remote identity. Server events distinguish full surface1, patch2, snapshot3,
+command response4 and other0. Presentation scopes measure local output work.
+Activation counts identify the epoch; local targets skip the remote source-off
+acknowledgement. Input-to-surface causal identity is NOT on the stable wire:
+timeline correlation across these stages is inference, not a measured RTT.
+
+Performance procedure:
+1. Capture the normal Sid-session baseline on the actual client.
+2. Ground a hypothesis from queue, transport, command and frame timings.
+3. Apply the smallest root fix and repeat the same live interaction.
+4. Compare numeric artifacts with the trace analysis script.
+5. Cite before/after evidence in the fix commit.
+Architecture choice: bounded in-process stage tokens rather than another ETW-only
+CPU sample, because the latter cannot identify input and RPC queue delay.
+The prior local-mode experiment proves its explicit tools only, not ordinary
+remote echo, remote application wheel response or cross-machine latency.

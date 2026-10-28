@@ -11,7 +11,8 @@ pub(super) fn start_endpoint_transport(
 ) -> Result<endpoint::NativeEndpointTransport, ClientError> {
     let reader = stream.try_clone().map_err(ClientError::ConnectionFailed)?;
     let transport = endpoint::NativeEndpointTransport::with_lifetime(stream, lifetime)
-        .map_err(ClientError::ConnectionFailed)?;
+        .map_err(ClientError::ConnectionFailed)?
+        .with_remote(!endpoint_id.is_local());
     let stopped = transport.stop_handle();
     let event_tx = event_tx.clone();
     std::thread::Builder::new()
@@ -68,11 +69,20 @@ pub(super) fn server_reader_thread(
         });
         match message {
             Ok(msg) => {
+                let class = match &msg {
+                    ServerMessage::PaneSurface(_) => 1,
+                    ServerMessage::PaneSurfacePatch(_) => 2,
+                    ServerMessage::ClientShellSnapshot(_) => 3,
+                    ServerMessage::ClientShellEndpointResponseChunk { .. } => 4,
+                    _ => 0,
+                };
+                super::latency_trace::mark("server_receive", class, !endpoint_id.is_local());
                 if event_tx
                     .blocking_send(ClientLoopEvent::ServerMessage {
                         endpoint_id: endpoint_id.clone(),
                         generation,
                         message: Box::new(msg),
+                        trace: super::latency_trace::token(),
                     })
                     .is_err()
                 {

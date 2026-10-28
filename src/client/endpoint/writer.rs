@@ -18,6 +18,8 @@ const IO_POLL_INTERVAL: Duration = Duration::from_millis(2);
 #[derive(Default)]
 struct FrameBatch {
     frames: Vec<Vec<u8>>,
+    trace: Option<super::super::latency_trace::Token>,
+    remote: bool,
     bytes: usize,
 }
 
@@ -32,6 +34,7 @@ enum WriterCommand {
 /// bridge teardown never block other endpoints.
 pub(crate) struct NativeEndpointTransport {
     sender: mpsc::SyncSender<WriterCommand>,
+    remote: bool,
     pending_batch: Option<Arc<Mutex<FrameBatch>>>,
     queued_bytes: Arc<AtomicUsize>,
     stopped: Arc<AtomicBool>,
@@ -77,12 +80,18 @@ impl NativeEndpointTransport {
                 }
             })?;
         Ok(Self {
+            remote: false,
             sender,
             pending_batch: None,
             queued_bytes,
             stopped,
             error,
         })
+    }
+
+    pub(crate) fn with_remote(mut self, remote: bool) -> Self {
+        self.remote = remote;
+        self
     }
 
     fn enqueue_frame(&mut self, frame: Vec<u8>) -> io::Result<()> {
@@ -102,6 +111,8 @@ impl NativeEndpointTransport {
         let batch = Arc::new(Mutex::new(FrameBatch {
             bytes: frame.len(),
             frames: vec![frame],
+            trace: super::super::latency_trace::token(),
+            remote: self.remote,
         }));
         self.sender
             .try_send(WriterCommand::Frames(batch.clone()))
@@ -122,6 +133,7 @@ impl NativeEndpointTransport {
 
 impl EndpointTransport for NativeEndpointTransport {
     fn send(&mut self, message: &ClientMessage) -> io::Result<()> {
+        let _latency = super::super::latency_trace::span("writer_enqueue", 1, self.remote);
         if self.stopped.load(Ordering::Acquire) {
             return Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
@@ -203,6 +215,10 @@ fn write_batch(
             .lock()
             .map_err(|_| io::Error::other("endpoint batch lock poisoned"))?,
     );
+    if let Some(trace) = batch.trace {
+        trace.mark("writer_queue", batch.bytes, batch.remote);
+    }
+    let _latency = super::super::latency_trace::span("writer_write", batch.bytes, batch.remote);
     for frame in batch.frames {
         if stopped.load(Ordering::Acquire) {
             break;
@@ -469,6 +485,7 @@ mod tests {
         let (sender, receiver) = mpsc::sync_channel(capacity);
         (
             NativeEndpointTransport {
+                remote: false,
                 sender,
                 pending_batch: None,
                 queued_bytes: Arc::new(AtomicUsize::new(0)),

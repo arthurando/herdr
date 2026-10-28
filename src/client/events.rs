@@ -9,7 +9,10 @@ pub(super) enum ClientLoopEvent {
     #[cfg(unix)]
     DirectGraphicsResponse(direct_graphics::Response),
     #[cfg(windows)]
-    StdinEvents(Vec<crate::protocol::ClientInputEvent>),
+    StdinEvents(
+        Vec<crate::protocol::ClientInputEvent>,
+        Option<super::latency_trace::Token>,
+    ),
     #[cfg(windows)]
     NotificationActivated(shell::ClientSystemNotificationTarget),
     Resize(u16, u16, u32, u32, bool),
@@ -18,6 +21,7 @@ pub(super) enum ClientLoopEvent {
         endpoint_id: endpoint::ClientEndpointId,
         generation: u64,
         message: Box<ServerMessage>,
+        trace: Option<super::latency_trace::Token>,
     },
     ServerDisconnected {
         endpoint_id: endpoint::ClientEndpointId,
