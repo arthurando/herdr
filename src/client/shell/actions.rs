@@ -567,16 +567,12 @@ impl ClientShellState {
             }
         }
         match pending.kind {
-            PendingEndpointKind::LocalCompose {
-                endpoint,
-                boot,
-                pane,
+            PendingEndpointKind::LocalHistory {
+                key,
+                revision,
+                truncated,
             } => {
-                self.complete_local_compose(endpoint, boot, pane, result);
-                return (true, Vec::new());
-            }
-            PendingEndpointKind::LocalHistory { key } => {
-                self.complete_local_history(key, result);
+                self.complete_local_history(key, revision, truncated, result);
                 return (true, Vec::new());
             }
             PendingEndpointKind::Generic => {}

@@ -73,47 +73,22 @@ impl ClientShellState {
                     }
                     return true;
                 }
-                let sent = self.push_endpoint_method_with_kind(
-                    crate::api::schema::Method::PaneSendInput(
-                        crate::api::schema::PaneSendInputParams {
-                            pane_id: pane.clone(),
-                            text,
-                            keys: Vec::new(),
-                        },
-                    ),
-                    PendingEndpointKind::LocalCompose {
-                        endpoint,
-                        boot,
-                        pane,
-                    },
-                    outcome,
-                );
-                if !sent {
+                if self.endpoint_is_online(&endpoint) {
+                    super::push_target_event(
+                        ClientInputTarget::Pane(pane),
+                        ClientPaneInputEvent::Paste(text),
+                        outcome,
+                    );
                     if let Some(ClientShellOverlay::LocalCompose(draft)) = self.overlay.as_mut() {
-                        draft.complete(Err("Target unavailable. Nothing was sent.".into()));
+                        draft.complete(Ok(()));
                     }
+                } else if let Some(ClientShellOverlay::LocalCompose(draft)) = self.overlay.as_mut()
+                {
+                    draft.complete(Err("Target unavailable. Nothing was queued.".into()));
                 }
             }
         }
         true
-    }
-
-    pub(super) fn complete_local_compose(
-        &mut self,
-        endpoint: ClientEndpointId,
-        boot: String,
-        pane: String,
-        result: Result<crate::api::schema::ResponseResult, ClientShellEndpointError>,
-    ) {
-        if let Some(ClientShellOverlay::LocalCompose(draft)) = self.overlay.as_mut() {
-            if draft.endpoint_id == endpoint && draft.boot_id == boot && draft.pane_id == pane {
-                draft.complete(match result {
-                    Ok(crate::api::schema::ResponseResult::Ok {}) => Ok(()),
-                    Ok(_) => Err("Unexpected acknowledgement.".into()),
-                    Err(error) => Err(error.message),
-                });
-            }
-        }
     }
 }
 

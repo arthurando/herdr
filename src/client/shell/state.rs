@@ -626,11 +626,8 @@ impl ClientShellOverlay {
 pub(super) enum PendingEndpointKind {
     LocalHistory {
         key: HistoryKey,
-    },
-    LocalCompose {
-        endpoint: ClientEndpointId,
-        boot: String,
-        pane: String,
+        revision: u64,
+        truncated: bool,
     },
     Generic,
     ProductAnnouncementDismiss {

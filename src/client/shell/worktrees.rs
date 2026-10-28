@@ -528,7 +528,6 @@ impl ClientShellState {
             (
                 PendingEndpointKind::Generic
                 | PendingEndpointKind::LocalHistory { .. }
-                | PendingEndpointKind::LocalCompose { .. }
                 | PendingEndpointKind::ProductAnnouncementDismiss { .. }
                 | PendingEndpointKind::ReleaseNotesDismiss
                 | PendingEndpointKind::PopupCommand

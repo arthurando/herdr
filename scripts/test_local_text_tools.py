@@ -13,6 +13,7 @@ import tempfile
 import threading
 import time
 
+import pyte
 import psutil
 from winpty import PtyProcess
 
@@ -47,6 +48,7 @@ class Client:
         self.proc = PtyProcess.spawn([exe, '--session', session, *extra], env=env,
                                      cwd=str(root), dimensions=(46,134), backend=0)
         self.queue = queue.Queue(); self.raw = []
+        self.screen = pyte.Screen(134, 46); self.stream = pyte.Stream(self.screen)
         clients.append(self)
         def read():
             try:
@@ -60,15 +62,29 @@ class Client:
         while time.perf_counter()-started < timeout:
             try: stamp, data = self.queue.get(timeout=.1)
             except queue.Empty: continue
-            text += data
-            if re.search(pattern, ansi.sub('', text)): return (stamp-started)*1000
+            self.stream.feed(data)
+            text = '\n'.join(self.screen.display)
+            if re.search(pattern, text): return (stamp-started)*1000
         raise AssertionError('Timed out: '+pattern)
     def drain(self):
-        while not self.queue.empty(): self.queue.get_nowait()
+        while not self.queue.empty():
+            _, data = self.queue.get_nowait(); self.stream.feed(data)
     def action(self, text, pattern):
         self.drain(); started=time.perf_counter(); self.proc.write(text)
         self.wait(pattern)
         return (time.perf_counter()-started)*1000
+
+    def visible_change(self, text, row=3, timeout=5):
+        self.drain(); before=self.screen.display[row]; started=time.perf_counter()
+        self.proc.write(text)
+        while time.perf_counter()-started < timeout:
+            try: stamp,data=self.queue.get(timeout=.1)
+            except queue.Empty: continue
+            self.stream.feed(data)
+            after=self.screen.display[row]
+            if before != after:
+                return {'ms': (stamp-started)*1000, 'before': before.strip(), 'after': after.strip()}
+        raise AssertionError('No visible viewport change while server paused')
 
 try:
     old = Client(args.stable)
@@ -88,11 +104,12 @@ try:
     assert server.is_running()
     receipt['checks']['stable_server_preserved_on_attach'] = pid
     client.action('for /L %i in (1,1,80) do @echo HISTORY_%i\r', r'HISTORY_80')
-    client.action('\x02L', 'Local text snapshot')
-    client.action('r', 'Fetched recent text')
+    client.action('\x02U', 'Local text snapshot')
+    client.action('r', 'Fetched terminal rows')
     server.suspend(); suspended=True
     # Only the explicit isolated server is paused. Local read must still react.
-    receipt['checks']['cached_pageup_with_server_suspended_ms'] = client.action('\x1b[5~', r'HISTORY_')
+    receipt['checks']['cached_pageup_with_server_suspended'] = client.visible_change('\x1b[5~')
+    receipt['checks']['cached_wheel_with_server_suspended'] = client.visible_change('\x1b[<64;60;20M')
     client.action('\x1b', 'HISTORY_80')
     client.action('\x02I', 'Local compose')
     receipt['checks']['local_typing_with_server_suspended_ms'] = client.action('LOCAL_DRAFT_ONLY', 'LOCAL_DRAFT_ONLY')
@@ -100,13 +117,15 @@ try:
     remote_text=cli('pane','read','w1:p1','--source','visible')
     assert 'LOCAL_DRAFT_ONLY' not in remote_text, 'Local draft leaked into remote pane'
     receipt['checks']['draft_stays_local'] = True
-    # A single-line send checks acceptance and does not execute the command.
+    # A single-line paste stays in the draft and does not execute the command.
     client.action('\x15echo __LOCAL_SENT_%RANDOM%', '__LOCAL_SENT_')
-    client.action('\x1b[13;5u', 'Text sent')
+    client.action('\x1b[13;5u', 'Paste queued')
+    client.action('\x1b[13;5u', 'Verify remote text first')
     remote_text=cli('pane','read','w1:p1','--source','visible')
     assert '__LOCAL_SENT_%RANDOM%' in remote_text
     assert not re.search(r'__LOCAL_SENT_\d+', remote_text)
-    receipt['checks']['acknowledged_paste_has_no_extra_enter'] = True
+    assert remote_text.count('__LOCAL_SENT_%RANDOM%') == 1
+    receipt['checks']['paste_retained_repeat_guarded_no_extra_enter'] = True
     client.action('\x1b', '__LOCAL_SENT_')
     client.action('\r', r'__LOCAL_SENT_\d+')
     receipt['checks']['remote_enter_still_executes_normally'] = True

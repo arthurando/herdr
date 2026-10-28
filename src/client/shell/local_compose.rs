@@ -26,6 +26,8 @@ pub(super) struct ClientLocalCompose {
     pub(super) pending: bool,
     pub(super) status: String,
     confirm_multiline: bool,
+    attempted: bool,
+    confirm_retry: bool,
 }
 
 impl ClientLocalCompose {
@@ -38,6 +40,8 @@ impl ClientLocalCompose {
             pending: false,
             status: String::new(),
             confirm_multiline: false,
+            attempted: false,
+            confirm_retry: false,
         }
     }
 
@@ -52,6 +56,12 @@ impl ClientLocalCompose {
             if key.kind == KeyEventKind::Repeat || self.input.is_empty() {
                 return ComposeEffect::None;
             }
+            if self.attempted && !self.confirm_retry {
+                self.confirm_retry = true;
+                self.status =
+                    "Verify remote text first. Ctrl+Enter again confirms another paste.".into();
+                return ComposeEffect::None;
+            }
             if self.input.contains('\n') && !self.confirm_multiline {
                 self.confirm_multiline = true;
                 self.status = format!(
@@ -61,11 +71,14 @@ impl ClientLocalCompose {
                 return ComposeEffect::None;
             }
             self.confirm_multiline = false;
+            self.confirm_retry = false;
+            self.attempted = true;
             self.pending = true;
-            self.status = "Send in progress; draft retained until acknowledgement.".into();
+            self.status = "Paste queued locally; draft retained.".into();
             return ComposeEffect::Send(self.input.as_str().to_owned());
         }
         self.confirm_multiline = false;
+        self.confirm_retry = false;
         let before = self.input.clone();
         self.input.handle_key(key);
         if self.input.len() > MAX_DRAFT_BYTES {
@@ -78,6 +91,7 @@ impl ClientLocalCompose {
     pub(super) fn insert_paste(&mut self, text: &str) {
         if !self.pending {
             self.confirm_multiline = false;
+            self.confirm_retry = false;
             if text.len() > MAX_DRAFT_BYTES.saturating_sub(self.input.len()) {
                 self.status = "Draft limit is 128 KiB. Paste rejected; draft retained.".into();
                 return;
@@ -93,11 +107,11 @@ impl ClientLocalCompose {
         self.pending = false;
         match result {
             Ok(()) => {
-                self.input.clear();
-                self.status = "Text sent. No Enter appended.".into();
+                self.status =
+                    "Paste queued; verify remote text. Draft retained. No Enter appended.".into();
             }
             Err(error) => {
-                // An acknowledgement can be lost after delivery. Do not promise retry safety.
+                // Transport queues do not acknowledge remote application delivery.
                 let safe_error = TextEditor::from(error.as_str());
                 self.status = format!(
                     "Send failed or uncertain; check remote text before retry. {safe_error}"
@@ -226,7 +240,7 @@ mod tests {
         );
     }
     #[test]
-    fn success_clears_only_after_ack_and_repeat_never_sends() {
+    fn queue_completion_retains_draft_and_retry_requires_confirmation() {
         let mut c = compose();
         c.insert_paste("draft");
         let send = TerminalKey::new(KeyCode::Enter, KeyModifiers::CONTROL);
@@ -238,11 +252,15 @@ mod tests {
         c.route_key(&send);
         assert_eq!(c.input.as_str(), "draft");
         c.complete(Ok(()));
-        assert!(c.input.is_empty());
+        assert_eq!(c.input.as_str(), "draft");
         assert!(!c.pending);
-        c.insert_paste("next");
-        c.complete(Ok(()));
-        assert_eq!(c.input.as_str(), "next");
+        assert_eq!(c.route_key(&send), ComposeEffect::None);
+        assert!(c.status.contains("Verify remote text"));
+        assert_eq!(
+            c.route_key(&send.clone().with_kind(KeyEventKind::Repeat)),
+            ComposeEffect::None
+        );
+        assert_eq!(c.route_key(&send), ComposeEffect::Send("draft".into()));
     }
     #[test]
     fn multiline_confirmation_is_revoked_by_edit_and_repeat_cannot_confirm() {

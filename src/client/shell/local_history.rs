@@ -117,6 +117,18 @@ impl ClientLocalHistory {
             self.scroll = self.cursor.saturating_sub(height - 1);
         }
     }
+    fn scroll_by(&mut self, delta: isize, height: usize) {
+        let old_scroll = self.scroll;
+        self.scroll = self
+            .scroll
+            .saturating_add_signed(delta)
+            .min(self.snapshot.lines.len().saturating_sub(height));
+        let moved = self.scroll as isize - old_scroll as isize;
+        self.cursor = self
+            .cursor
+            .saturating_add_signed(moved)
+            .min(self.snapshot.lines.len().saturating_sub(1));
+    }
     fn selected_text(&self) -> String {
         let anchor = self.anchor.unwrap_or(self.cursor);
         self.snapshot.lines[anchor.min(self.cursor)..=anchor.max(self.cursor)].join("\n")
@@ -210,7 +222,7 @@ pub(super) fn render_history(b: &mut Buffer, view: &ClientLocalHistory, palette:
     b.set_stringn(
         body.x,
         body.bottom() - 1,
-        "Wheel/PgUp/PgDn scroll | V select lines | Y copy | R fetch recent | Esc live",
+        "Wheel/PgUp/PgDn scroll | V select lines | Y copy | R fetch terminal rows | Esc live",
         usize::from(body.width),
         Style::default(),
     );
@@ -302,18 +314,46 @@ impl ClientShellState {
                     view.status = "Original target changed; cached text retained".into();
                     return true;
                 }
+                let Some(pane) = self.pane_surface.as_ref().and_then(|surface| {
+                    surface
+                        .panes
+                        .iter()
+                        .find(|pane| pane.pane_id == history_key.pane)
+                }) else {
+                    view.status = "Terminal geometry unavailable; cached text retained".into();
+                    return true;
+                };
+                // These are terminal-owned rows, not an alternate-screen application's history.
+                let last_row = pane
+                    .scroll
+                    .map_or(0, |scroll| scroll.max_offset_from_bottom)
+                    .saturating_add(u64::from(pane.inner_rect.height.saturating_sub(1)))
+                    .min(u64::from(u32::MAX)) as u32;
+                let first_row = last_row.saturating_sub(999);
+                let revision = pane.content_revision;
+                let end_col = pane.inner_rect.width.saturating_sub(1);
                 view.pending = true;
                 view.status.clear();
                 let sent = self.push_endpoint_method_with_kind(
-                    crate::api::schema::Method::PaneRead(crate::api::schema::PaneReadParams {
-                        pane_id: history_key.pane.clone(),
-                        source: crate::api::schema::ReadSource::Recent,
-                        lines: Some(1000),
-                        format: crate::api::schema::ReadFormat::Text,
-                        strip_ansi: true,
-                        intent: Default::default(),
-                    }),
-                    PendingEndpointKind::LocalHistory { key: history_key },
+                    crate::api::schema::Method::PaneSelectionRead(
+                        crate::api::schema::PaneSelectionReadParams {
+                            pane_id: history_key.pane.clone(),
+                            anchor: crate::api::schema::PaneTextPoint {
+                                row: first_row,
+                                col: 0,
+                            },
+                            cursor: crate::api::schema::PaneTextPoint {
+                                row: last_row,
+                                col: end_col,
+                            },
+                            content_revision: Some(revision),
+                        },
+                    ),
+                    PendingEndpointKind::LocalHistory {
+                        key: history_key,
+                        revision,
+                        truncated: first_row > 0,
+                    },
                     outcome,
                 );
                 if !sent {
@@ -346,8 +386,8 @@ impl ClientShellState {
                 };
                 view.move_cursor(1, height);
             }
-            KeyCode::PageUp => view.move_cursor(-(height as isize), height),
-            KeyCode::PageDown => view.move_cursor(height as isize, height),
+            KeyCode::PageUp => view.scroll_by(-(height as isize), height),
+            KeyCode::PageDown => view.scroll_by(height as isize, height),
             KeyCode::Home => view.move_cursor(-(view.snapshot.lines.len() as isize), height),
             KeyCode::End => view.move_cursor(view.snapshot.lines.len() as isize, height),
             _ => {}
@@ -367,8 +407,8 @@ impl ClientShellState {
         let body = history_geometry(Rect::new(0, 0, w, h));
         let height = usize::from(body.height.saturating_sub(2)).max(1);
         match mouse.kind {
-            MouseEventKind::ScrollUp => view.move_cursor(-3, height),
-            MouseEventKind::ScrollDown => view.move_cursor(3, height),
+            MouseEventKind::ScrollUp => view.scroll_by(-3, height),
+            MouseEventKind::ScrollDown => view.scroll_by(3, height),
             MouseEventKind::Down(MouseButton::Left) | MouseEventKind::Drag(MouseButton::Left)
                 if mouse.row >= body.y && mouse.row < body.y + height as u16 =>
             {
@@ -388,17 +428,19 @@ impl ClientShellState {
     pub(super) fn complete_local_history(
         &mut self,
         key: HistoryKey,
+        revision: u64,
+        truncated: bool,
         result: Result<crate::api::schema::ResponseResult, ClientShellEndpointError>,
     ) {
         let text = match result {
-            Ok(crate::api::schema::ResponseResult::PaneRead { read })
-                if read.pane_id == key.pane =>
+            Ok(crate::api::schema::ResponseResult::PaneSelection { pane_id, text })
+                if pane_id == key.pane =>
             {
                 let text = Arc::new(TextSnapshot::new(
-                    &read.text,
-                    "Fetched recent text",
-                    read.revision,
-                    read.truncated,
+                    &text,
+                    "Fetched terminal rows",
+                    revision,
+                    truncated,
                 ));
                 self.local_history_cache.insert(key.clone(), text.clone());
                 Some(text)
@@ -429,6 +471,27 @@ impl ClientShellState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn page_and_wheel_scroll_move_the_viewport_on_the_first_event() {
+        let key = HistoryKey {
+            endpoint: ClientEndpointId::Local,
+            boot: "boot".into(),
+            pane: "pane".into(),
+        };
+        let text = (0..100)
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut view =
+            ClientLocalHistory::new(key, Arc::new(TextSnapshot::new(&text, "test", 1, false)));
+        view.scroll = 80;
+        view.scroll_by(-3, 20);
+        assert_eq!((view.scroll, view.cursor), (77, 96));
+        view.scroll_by(-20, 20);
+        assert_eq!((view.scroll, view.cursor), (57, 76));
+        view.scroll_by(200, 20);
+        assert_eq!((view.scroll, view.cursor), (80, 99));
+    }
     #[test]
     fn snapshots_are_bounded_and_do_not_fabricate_history() {
         let text = "界".repeat(MAX_BYTES);

@@ -10,18 +10,19 @@ repository; this is a user-owned fork.
 - `src/client/shell/local_history.rs` owns bounded, immutable text snapshots,
   local line selection and local scroll. It never concatenates screen redraws.
 - `local_compose.rs` and `local_compose_actions.rs` own explicit local drafts and
-  acknowledged `pane.send_input` submission. They do not predict terminal echo.
+  ordinary pane Paste transport with retained drafts. They do not predict terminal echo.
 - Existing terminal keys, mouse wheel and server output remain unchanged outside
   the explicit tools. Alternate-screen app history is not client terminal history.
 - The reader starts from the received viewport or a prior cached snapshot. An
-  explicit refresh uses existing `pane.read recent` and may ask an idle remote
-  app to scroll while the server collects text. Do not turn this into automatic
-  background polling. A completed snapshot can be read without a remote reply.
+  explicit refresh uses advertised `pane.selection.read` on at most 1,000
+  terminal-held rows, fenced by content revision. This does not scroll or alter
+  remote selection. Hidden alternate-screen app history is not exposed.
+  A completed snapshot can be read without a remote reply.
 
 ## Design and verification plan
 
 1. Ground the affected subsystem. Done: endpoint surfaces contain viewport cells;
-   pane.read supplies authoritative revisioned text.
+   pane.selection.read supplies revision-fenced terminal text.
 2. Run the architect step. Chosen: immutable endpoint/boot/pane snapshots and
    explicit local modals. Rejected: concatenate frame redraws, which invents
    chronology and duplicates alternate-screen controls.
@@ -59,3 +60,7 @@ Keep the installed executable intact. Detach the old client with its configured
 prefix then `q`; launch the candidate client in the same terminal. Detach closes
 the presentation client, not the server/panes. Only the lead performs this
 user-session handoff. Retain the stable executable for client-only rollback.
+
+Stable v0.9.5 excludes pane.read and pane.send_input from the client-shell lane.
+Do not infer lane support from the CLI API. Compose uses the existing Paste input
+event and retains its draft; queue admission is not remote acceptance.

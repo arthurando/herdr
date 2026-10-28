@@ -5,10 +5,10 @@ They do not change ordinary remote application controls.
 
 ## Read received text
 
-1. Press your prefix, then Shift+L, or choose **local text** in the global menu.
+1. Press your prefix, then Shift+U, or choose **local text** in the global menu.
 2. Use the wheel, arrows, Page Up or Page Down to move through the local snapshot.
 3. Press V to start a line selection. Move the cursor, then press Y to copy.
-4. Press R to fetch recent text from the selected pane.
+4. Press R to fetch terminal-held rows from the selected pane.
 5. Press Esc to return to the live pane.
 
 The reader opens immediately with the received viewport or a previous snapshot.
@@ -18,9 +18,10 @@ continues in the live pane; R explicitly replaces the snapshot.
 
 The snapshot label identifies its source and revision. A viewport is only the
 visible screen, not the full history. Herdr never joins alternate-screen redraws
-and presents them as conversation history. On supported idle agent applications,
-the existing remote text API may scroll the application to collect recent text.
-That fetch still needs the remote connection. After receipt, scroll, line
+and presents them as conversation history. The fetch reads terminal-held rows without a scroll or selection change on the
+remote application. Alternate-screen applications can retain their older history
+privately; those rows are not available through this reader. The fetch still
+needs the remote connection. After receipt, scroll, line
 selection and copy need no remote response.
 
 ## Compose text locally
@@ -29,19 +30,18 @@ selection and copy need no remote response.
 2. Type or paste your draft. Enter adds a new line.
 3. Press Ctrl+Enter to send the text to the original pane.
 4. Confirm a multiline send with a second Ctrl+Enter.
-5. Press Esc to return to the pane. Unsent drafts remain in client memory.
+5. Press Esc to return to the pane. Drafts remain in client memory.
 
 Each draft has a 128 KiB limit. Text stays local until you send it. The server uses
 the application's normal paste mode. No extra Enter key is appended. However,
 line breaks can execute commands in applications that do not enable bracketed
 paste. The multiline confirmation identifies the target and warns about this.
 
-The draft stays visible until the server acknowledges acceptance. This means
-the server queued the text, not that the application completed any operation.
-On failure or timeout, the draft remains. Check the remote pane before retry;
-a lost acknowledgement can occur after delivery. Repeated submit keys cannot
-send another copy while a request is pending. Do not use visible local drafts
-for passwords.
+The draft remains after a send. The status says that the paste was queued, not
+that the server or application accepted it. Check the remote pane before another
+send. A second send requires explicit confirmation. Repeated key events cannot
+send another copy. Clear the draft yourself after you verify delivery; Ctrl+E then Ctrl+U
+clears the text. Do not use visible local drafts for passwords.
 
 These tools do not predict terminal echo, infer password prompts, or change
 normal terminal input. Ordinary remote typing and application scroll still

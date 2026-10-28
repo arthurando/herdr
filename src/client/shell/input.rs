@@ -726,12 +726,18 @@ impl ClientShellState {
                 }
                 // Client-only tools do not change the published endpoint/keybinding codec.
                 // Explicit configured prefix bindings above take precedence.
-                if matches!(key.code, KeyCode::Char('L')) {
+                if crate::config::terminal_key_matches_combo(
+                    key,
+                    (KeyCode::Char('u'), KeyModifiers::SHIFT),
+                ) {
                     self.open_local_history();
                     outcome.repaint = true;
                     return None;
                 }
-                if matches!(key.code, KeyCode::Char('I')) {
+                if crate::config::terminal_key_matches_combo(
+                    key,
+                    (KeyCode::Char('i'), KeyModifiers::SHIFT),
+                ) {
                     self.open_local_compose();
                     outcome.repaint = true;
                     return None;

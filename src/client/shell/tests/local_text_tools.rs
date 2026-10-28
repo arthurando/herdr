@@ -1,6 +1,33 @@
 use super::*;
 
 #[test]
+fn local_tool_shortcuts_accept_normalized_windows_shift_keys() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    state.compose(106, 20).unwrap();
+    state.mode = ClientShellMode::Prefix;
+    state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
+        KeyCode::Char('u'),
+        KeyModifiers::SHIFT,
+    ))]);
+    assert!(matches!(
+        state.overlay,
+        Some(ClientShellOverlay::LocalHistory(_))
+    ));
+    state.overlay = None;
+    state.mode = ClientShellMode::Prefix;
+    state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
+        KeyCode::Char('i'),
+        KeyModifiers::SHIFT,
+    ))]);
+    assert!(matches!(
+        state.overlay,
+        Some(ClientShellOverlay::LocalCompose(_))
+    ));
+}
+
+#[test]
 fn local_reader_keeps_snapshot_while_live_output_advances() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
@@ -43,4 +70,71 @@ fn local_compose_owns_text_and_keys_even_with_remote_popup() {
         panic!("draft missing")
     };
     assert_eq!(draft.input.as_str(), "中文 draftx");
+}
+
+#[test]
+fn local_tools_use_stable_advertised_transport_and_retain_sent_draft() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    let mut pane_surface = surface();
+    let last_row = 1200 + u32::from(pane_surface.panes[0].inner_rect.height.saturating_sub(1));
+    pane_surface.panes[0].scroll = Some(crate::protocol::PaneSurfaceScrollMetrics {
+        offset_from_bottom: 400,
+        max_offset_from_bottom: 1200,
+        viewport_rows: 18,
+    });
+    state.set_pane_surface(pane_surface);
+    state.set_endpoint_status(&ClientEndpointId::Local, ClientEndpointStatus::Online);
+    state.set_endpoint_methods(Some(vec!["pane.selection.read".into()]));
+    state.open_local_history();
+    let mut output = ClientShellInput::default();
+    state.route_local_history_key(
+        &crate::input::TerminalKey::new(KeyCode::Char('r'), KeyModifiers::NONE),
+        &mut output,
+    );
+    assert!(
+        matches!(&output.actions[..], [ClientShellAction::Endpoint { request, .. }]
+        if matches!(&request.method, crate::api::schema::Method::PaneSelectionRead(params)
+            if params.content_revision.is_some() && params.cursor.row == last_row && params.anchor.row == last_row - 999))
+    );
+    let ClientShellAction::Endpoint { request, .. } = &output.actions[0] else {
+        unreachable!()
+    };
+    state.handle_endpoint_result(
+        "boot-1",
+        &request.id,
+        Err(ClientShellEndpointError {
+            code: Some("stale_content".into()),
+            message: "pane content changed".into(),
+        }),
+    );
+    assert!(matches!(
+        state.overlay,
+        Some(ClientShellOverlay::LocalHistory(_))
+    ));
+    assert!(state.pending_requests.is_empty());
+    let rendered = state.compose(106, 20).unwrap();
+    let text: String = rendered
+        .frame
+        .cells
+        .iter()
+        .map(|cell| cell.symbol.as_str())
+        .collect();
+    assert!(text.contains("cached text retained"));
+    state.open_local_compose();
+    state.handle_raw_events(vec![RawInputEvent::Paste("literal draft".into())]);
+    let send = crate::input::TerminalKey::new(KeyCode::Enter, KeyModifiers::CONTROL);
+    let output = state.handle_raw_events(vec![RawInputEvent::Key(send.clone())]);
+    assert!(output.actions.is_empty());
+    assert!(
+        matches!(&output.requests[..], [ClientMessage::ClientShellPaneInput { events, .. }]
+        if matches!(&events[..], [ClientPaneInputEvent::Paste(text)] if text == "literal draft"))
+    );
+    let Some(ClientShellOverlay::LocalCompose(draft)) = state.overlay.as_ref() else {
+        panic!("draft missing")
+    };
+    assert_eq!(draft.input.as_str(), "literal draft");
+    assert!(draft.status.contains("Paste queued"));
+    let output = state.handle_raw_events(vec![RawInputEvent::Key(send)]);
+    assert!(output.requests.is_empty() && output.actions.is_empty());
 }

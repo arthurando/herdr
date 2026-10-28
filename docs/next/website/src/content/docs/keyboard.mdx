@@ -141,18 +141,18 @@ If a direct chord does nothing, your terminal or desktop environment consumed it
 
 ## Local text tools (user fork)
 
-`prefix+Shift+L` opens a local text snapshot. The wheel, Page Up, Page Down,
+`prefix+Shift+U` opens a local text snapshot. The wheel, Page Up, Page Down,
 line selection (`V`) and copy (`Y`) use received text without a remote response.
-`R` explicitly fetches recent pane text. That fetch still needs the server and
-can scroll an idle alternate-screen agent application while it collects text.
+`R` fetches terminal-held rows without a remote scroll or selection change.
+It needs the server. Hidden alternate-screen application history is not exposed.
 The reader does not invent full history from screen redraws. `Esc` returns live.
 
 `prefix+Shift+I` opens local compose. Text stays on this computer until
 `Ctrl+Enter`. Plain Enter adds a line. Multiline sends require a second
 `Ctrl+Enter` because embedded line breaks can execute commands in some apps.
-No additional Enter key is sent. The draft clears only after server acceptance;
-on a timeout, check the remote pane before retry. Do not put passwords in visible
-local drafts. `Esc` retains an unsent draft in client memory.
+No additional Enter key is sent. The draft remains after the paste is queued;
+check the remote pane before a repeat send, which requires confirmation. Do not put passwords in visible
+local drafts. `Esc` retains the draft in client memory.
 
 Both tools also appear in the global menu. Configured prefix bindings take
 precedence. Ordinary terminal input and remote app wheel controls remain remote.
