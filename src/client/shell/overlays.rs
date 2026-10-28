@@ -56,6 +56,18 @@ pub(crate) fn render_client_overlay(
         }
     }
     match o {
+        ClientShellOverlay::LocalCompose(draft) => Some(OverlayRender {
+            area: b.area,
+            cursor: draft.render(b, p),
+            ..Default::default()
+        }),
+        ClientShellOverlay::LocalHistory(view) => {
+            super::super::local_history::render_history(b, view, p);
+            Some(OverlayRender {
+                area: b.area,
+                ..Default::default()
+            })
+        }
         ClientShellOverlay::Onboarding => render_onboarding_overlay(b, k, p),
         ClientShellOverlay::ProductAnnouncement(v) => render_product_announcement_overlay(b, v, p),
         ClientShellOverlay::ReleaseNotes(v) => {

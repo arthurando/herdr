@@ -247,6 +247,10 @@ impl ClientShellState {
                 }
                 RawInputEvent::Text(text) => {
                     let text = text.into_string();
+                    if self.local_text_tool_active() {
+                        outcome.repaint |= self.insert_overlay_text(&text);
+                        continue;
+                    }
                     if matches!(
                         self.overlay,
                         Some(
@@ -280,6 +284,10 @@ impl ClientShellState {
                     }
                 }
                 RawInputEvent::Paste(text) => {
+                    if self.local_text_tool_active() {
+                        outcome.repaint |= self.insert_overlay_text(&text);
+                        continue;
+                    }
                     if matches!(
                         self.overlay,
                         Some(
@@ -547,6 +555,9 @@ impl ClientShellState {
     }
 
     pub(super) fn modal_paste_target_active(&self) -> bool {
+        if self.local_text_tool_active() {
+            return true;
+        }
         if self.popup_pending
             || self.popup_input_target().is_some()
             || (self.overlay.is_none()
@@ -614,6 +625,10 @@ impl ClientShellState {
     ) -> Option<ClientInputTarget> {
         if self.handle_modal_paste_shortcut_with(key, outcome, crate::platform::read_clipboard_text)
         {
+            return None;
+        }
+        if self.local_text_tool_active() {
+            self.route_overlay_key(key, outcome);
             return None;
         }
         if matches!(
@@ -707,6 +722,18 @@ impl ClientShellState {
                     self.mode = return_mode;
                     outcome.repaint = true;
                     self.record_binding(binding, outcome);
+                    return None;
+                }
+                // Client-only tools do not change the published endpoint/keybinding codec.
+                // Explicit configured prefix bindings above take precedence.
+                if matches!(key.code, KeyCode::Char('L')) {
+                    self.open_local_history();
+                    outcome.repaint = true;
+                    return None;
+                }
+                if matches!(key.code, KeyCode::Char('I')) {
+                    self.open_local_compose();
+                    outcome.repaint = true;
                     return None;
                 }
                 self.mode = return_mode;

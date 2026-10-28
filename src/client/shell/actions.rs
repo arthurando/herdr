@@ -567,6 +567,18 @@ impl ClientShellState {
             }
         }
         match pending.kind {
+            PendingEndpointKind::LocalCompose {
+                endpoint,
+                boot,
+                pane,
+            } => {
+                self.complete_local_compose(endpoint, boot, pane, result);
+                return (true, Vec::new());
+            }
+            PendingEndpointKind::LocalHistory { key } => {
+                self.complete_local_history(key, result);
+                return (true, Vec::new());
+            }
             PendingEndpointKind::Generic => {}
             PendingEndpointKind::PaneLinkResolve { .. } => unreachable!("handled above"),
             PendingEndpointKind::ProductAnnouncementDismiss { version, id } => {
