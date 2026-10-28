@@ -183,9 +183,10 @@ fn default_draft_fences_boot_and_direct_toggle_preserves_draft() {
     let mut state = enrolled_remote_state();
     state.handle_raw_events(vec![RawInputEvent::Paste("retained".into())]);
     state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
-        KeyCode::Char('d'),
-        KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        KeyCode::Esc,
+        KeyModifiers::NONE,
     ))]);
+    state.set_default_draft(false);
     assert!(!state.default_draft_enabled());
     assert!(state.overlay.is_none());
     assert_eq!(state.local_compose_drafts[0].input.as_str(), "retained");

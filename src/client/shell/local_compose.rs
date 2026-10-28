@@ -149,7 +149,7 @@ impl ClientLocalCompose {
         buffer.set_stringn(
             inner.x,
             inner.y,
-            "Enter: newline | Ctrl+Enter: send | Ctrl+Shift+D: direct | Esc: close",
+            "Enter: newline | Ctrl+Enter: send | Esc: close; menu: direct input",
             usize::from(inner.width),
             style,
         );
