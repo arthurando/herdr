@@ -138,3 +138,21 @@ A few `ctrl+alt` chords are taken elsewhere. Avoid these:
 | `ctrl+alt+f1..f12` | Linux virtual console switching |
 
 If a direct chord does nothing, your terminal or desktop environment consumed it before Herdr could see it. Rebind either side: free the chord in the terminal's settings, or pick another chord in Herdr.
+
+## Local text tools (user fork)
+
+`prefix+Shift+L` opens a local text snapshot. The wheel, Page Up, Page Down,
+line selection (`V`) and copy (`Y`) use received text without a remote response.
+`R` explicitly fetches recent pane text. That fetch still needs the server and
+can scroll an idle alternate-screen agent application while it collects text.
+The reader does not invent full history from screen redraws. `Esc` returns live.
+
+`prefix+Shift+I` opens local compose. Text stays on this computer until
+`Ctrl+Enter`. Plain Enter adds a line. Multiline sends require a second
+`Ctrl+Enter` because embedded line breaks can execute commands in some apps.
+No additional Enter key is sent. The draft clears only after server acceptance;
+on a timeout, check the remote pane before retry. Do not put passwords in visible
+local drafts. `Esc` retains an unsent draft in client memory.
+
+Both tools also appear in the global menu. Configured prefix bindings take
+precedence. Ordinary terminal input and remote app wheel controls remain remote.

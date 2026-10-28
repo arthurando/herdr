@@ -2,6 +2,8 @@ use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ClientGlobalMenuAction {
+    LocalHistory,
+    LocalCompose,
     Binding(crate::input::KeybindAction),
     WhatsNew,
 }
@@ -50,6 +52,8 @@ pub(super) fn global_menu_items(
         "detach",
         ClientGlobalMenuAction::Binding(crate::input::KeybindAction::Detach),
     ));
+    items.push(("local text", ClientGlobalMenuAction::LocalHistory));
+    items.push(("local compose", ClientGlobalMenuAction::LocalCompose));
     items
 }
 
@@ -100,6 +104,8 @@ impl ClientShellState {
         }
         self.overlay = None;
         match action {
+            ClientGlobalMenuAction::LocalHistory => self.open_local_history(),
+            ClientGlobalMenuAction::LocalCompose => self.open_local_compose(),
             ClientGlobalMenuAction::Binding(binding) => {
                 self.record_binding(crate::input::KeybindMatch::Action(binding), outcome)
             }

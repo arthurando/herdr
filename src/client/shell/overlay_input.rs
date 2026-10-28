@@ -449,6 +449,11 @@ impl ClientShellState {
             return true;
         }
         match self.overlay.as_mut() {
+            Some(ClientShellOverlay::LocalCompose(draft)) => {
+                draft.insert_paste(text);
+                true
+            }
+            Some(ClientShellOverlay::LocalHistory(_)) => true,
             Some(ClientShellOverlay::Rename(rename)) => {
                 rename.input.insert(text);
                 true
@@ -476,6 +481,13 @@ impl ClientShellState {
         outcome: &mut ClientShellInput,
     ) {
         use crossterm::event::KeyModifiers;
+
+        if self.route_local_history_key(key, outcome) {
+            return;
+        }
+        if self.route_local_compose_key(key, outcome) {
+            return;
+        }
 
         if matches!(self.overlay, Some(ClientShellOverlay::Onboarding)) {
             if matches!(

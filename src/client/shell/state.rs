@@ -278,6 +278,8 @@ pub(super) enum ClientShellMode {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ClientShellOverlayKind {
+    LocalHistory,
+    LocalCompose,
     Onboarding,
     ProductAnnouncement,
     ReleaseNotes,
@@ -581,6 +583,8 @@ pub(super) struct ClientConfirmCloseOverlay {
 
 #[derive(Debug)]
 pub(super) enum ClientShellOverlay {
+    LocalHistory(ClientLocalHistory),
+    LocalCompose(ClientLocalCompose),
     Onboarding,
     ProductAnnouncement(crate::app::state::ProductAnnouncementState),
     ReleaseNotes(crate::app::state::ReleaseNotesState),
@@ -599,6 +603,8 @@ pub(super) enum ClientShellOverlay {
 impl ClientShellOverlay {
     pub(super) fn kind(&self) -> ClientShellOverlayKind {
         match self {
+            Self::LocalHistory(_) => ClientShellOverlayKind::LocalHistory,
+            Self::LocalCompose(_) => ClientShellOverlayKind::LocalCompose,
             Self::Onboarding => ClientShellOverlayKind::Onboarding,
             Self::ProductAnnouncement(_) => ClientShellOverlayKind::ProductAnnouncement,
             Self::ReleaseNotes(_) => ClientShellOverlayKind::ReleaseNotes,
@@ -618,6 +624,14 @@ impl ClientShellOverlay {
 
 #[derive(Debug)]
 pub(super) enum PendingEndpointKind {
+    LocalHistory {
+        key: HistoryKey,
+    },
+    LocalCompose {
+        endpoint: ClientEndpointId,
+        boot: String,
+        pane: String,
+    },
     Generic,
     ProductAnnouncementDismiss {
         version: String,
@@ -857,6 +871,8 @@ pub(super) struct ClientCopyModeState {
 }
 
 pub(crate) struct ClientShellState {
+    pub(super) local_history_cache: LocalHistoryCache,
+    pub(super) local_compose_drafts: Vec<ClientLocalCompose>,
     pub(super) machine_diagnostics: super::machine_diagnostics::MachineDiagnostics,
     pub(super) config: ClientShellConfig,
     pub(super) snapshot: Option<Box<ClientShellSnapshot>>,
@@ -1035,6 +1051,8 @@ impl ClientShellState {
             snapshot: None,
             active_snapshot_generation: None,
             pane_surface_generation: None,
+            local_history_cache: LocalHistoryCache::default(),
+            local_compose_drafts: Vec::new(),
             pane_surface: None,
             pending_pane_surface: None,
             graphics: crate::kitty_graphics::surface::ClientState::new(),
