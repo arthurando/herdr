@@ -25,6 +25,7 @@ pub(super) struct ClientLocalCompose {
     pub(super) input: TextEditor,
     pub(super) pending: bool,
     pub(super) status: String,
+    confirm_multiline: bool,
 }
 
 impl ClientLocalCompose {
@@ -36,6 +37,7 @@ impl ClientLocalCompose {
             input: TextEditor::multiline(),
             pending: false,
             status: String::new(),
+            confirm_multiline: false,
         }
     }
 
@@ -50,10 +52,20 @@ impl ClientLocalCompose {
             if key.kind == KeyEventKind::Repeat || self.input.is_empty() {
                 return ComposeEffect::None;
             }
+            if self.input.contains('\n') && !self.confirm_multiline {
+                self.confirm_multiline = true;
+                self.status = format!(
+                    "Line breaks may submit commands to {:?}/{}. Ctrl+Enter again confirms.",
+                    self.endpoint_id, self.pane_id
+                );
+                return ComposeEffect::None;
+            }
+            self.confirm_multiline = false;
             self.pending = true;
             self.status = "Send in progress; draft retained until acknowledgement.".into();
             return ComposeEffect::Send(self.input.as_str().to_owned());
         }
+        self.confirm_multiline = false;
         let before = self.input.clone();
         self.input.handle_key(key);
         if self.input.len() > MAX_DRAFT_BYTES {
@@ -65,6 +77,7 @@ impl ClientLocalCompose {
 
     pub(super) fn insert_paste(&mut self, text: &str) {
         if !self.pending {
+            self.confirm_multiline = false;
             if text.len() > MAX_DRAFT_BYTES.saturating_sub(self.input.len()) {
                 self.status = "Draft limit is 128 KiB. Paste rejected; draft retained.".into();
                 return;
@@ -81,7 +94,7 @@ impl ClientLocalCompose {
         match result {
             Ok(()) => {
                 self.input.clear();
-                self.status = "Text sent. Remote Enter was not sent.".into();
+                self.status = "Text sent. No Enter appended.".into();
             }
             Err(error) => {
                 // An acknowledgement can be lost after delivery. Do not promise retry safety.
@@ -129,7 +142,7 @@ impl ClientLocalCompose {
         buffer.set_stringn(
             inner.x,
             inner.bottom() - 2,
-            "Draft stays local until Send. No remote Enter. Not for passwords.",
+            "Local draft. No Enter appended. Line breaks may submit commands.",
             usize::from(inner.width),
             style,
         );
@@ -179,6 +192,12 @@ mod tests {
         assert_eq!(c.input.as_str(), "first\n中\nlast");
         assert_eq!(
             key(&mut c, KeyCode::Enter, KeyModifiers::CONTROL),
+            ComposeEffect::None
+        );
+        assert!(!c.pending);
+        assert!(c.status.contains("Line breaks may submit commands"));
+        assert_eq!(
+            key(&mut c, KeyCode::Enter, KeyModifiers::CONTROL),
             ComposeEffect::Send("first\n中\nlast".into())
         );
     }
@@ -226,12 +245,27 @@ mod tests {
         assert_eq!(c.input.as_str(), "next");
     }
     #[test]
+    fn multiline_confirmation_is_revoked_by_edit_and_repeat_cannot_confirm() {
+        let mut c = compose();
+        c.insert_paste("a\nb");
+        let send = TerminalKey::new(KeyCode::Enter, KeyModifiers::CONTROL);
+        assert_eq!(c.route_key(&send), ComposeEffect::None);
+        assert_eq!(
+            c.route_key(&send.clone().with_kind(KeyEventKind::Repeat)),
+            ComposeEffect::None
+        );
+        c.insert_paste("c");
+        assert_eq!(c.route_key(&send), ComposeEffect::None);
+        assert_eq!(c.route_key(&send), ComposeEffect::Send("a\nbc".into()));
+    }
+
+    #[test]
     fn draft_limit_rejects_large_paste_and_unicode_without_corruption() {
         let mut c = compose();
         c.insert_paste(&"x".repeat(MAX_DRAFT_BYTES - 2));
-        c.insert_paste("?");
+        c.insert_paste("\u{4e2d}");
         assert_eq!(c.input.len(), MAX_DRAFT_BYTES - 2);
-        key(&mut c, KeyCode::Char('?'), KeyModifiers::NONE);
+        key(&mut c, KeyCode::Char('\u{4e2d}'), KeyModifiers::NONE);
         assert_eq!(c.input.len(), MAX_DRAFT_BYTES - 2);
         c.insert_paste("ab");
         assert_eq!(c.input.len(), MAX_DRAFT_BYTES);
@@ -241,9 +275,9 @@ mod tests {
         key(&mut c, KeyCode::Backspace, KeyModifiers::NONE);
         key(&mut c, KeyCode::Backspace, KeyModifiers::NONE);
         key(&mut c, KeyCode::Backspace, KeyModifiers::NONE);
-        c.insert_paste("?");
+        c.insert_paste("\u{4e2d}");
         assert_eq!(c.input.len(), MAX_DRAFT_BYTES);
-        assert!(c.input.ends_with("?"));
+        assert!(c.input.ends_with("\u{4e2d}"));
     }
 
     #[test]
