@@ -629,6 +629,12 @@ fn aggregate_agent_scroll_still_clamps_when_rows_shrink_on_activation() {
             .unwrap();
         projection.revision += 1;
         projection.agents.truncate(1);
+        projection.panes.retain(|pane| {
+            projection
+                .agents
+                .iter()
+                .any(|agent| agent.pane_id == pane.pane_id)
+        });
         state.set_endpoint_snapshot(&endpoint_id, projection);
     }
     assert!(state.activate_endpoint_projection(&remote));
@@ -1725,7 +1731,7 @@ fn selected_position_sort_uses_public_tab_and_pane_numbers() {
         crate::config::AgentPanelSortConfig::Priority,
     )
     .into_iter()
-    .map(|row| row.agent.name.as_deref().expect("agent name"))
+    .map(|row| row.agent.name.clone().expect("agent name"))
     .collect::<Vec<_>>();
     assert_eq!(names, ["pane two", "pane nine", "tab nine"]);
 }
@@ -2705,10 +2711,18 @@ fn focus_agent_index_uses_online_aggregate_rows() {
         |index| crate::input::KeybindMatch::Action(crate::input::KeybindAction::FocusAgent(index));
 
     assert!(state.indexed_navigation_target_exists(&focus_agent(0)));
-    assert!(!state.indexed_navigation_target_exists(&focus_agent(1)));
+    assert!(state.indexed_navigation_target_exists(&focus_agent(1)));
+    assert!(!state.indexed_navigation_target_exists(&focus_agent(2)));
 
     state.set_endpoint_status(&endpoint_id, ClientEndpointStatus::Reconnecting);
-    assert!(!state.indexed_navigation_target_exists(&focus_agent(0)));
+    assert!(state.indexed_navigation_target_exists(&focus_agent(0)));
+    assert!(!state.indexed_navigation_target_exists(&focus_agent(1)));
+    let targets = aggregate_navigation::online_agent_targets(
+        &state.endpoints,
+        &state.active_endpoint_id,
+        state.config.agent_panel_sort,
+    );
+    assert_eq!(targets[0].endpoint_id, ClientEndpointId::Local);
 }
 
 #[test]
@@ -2838,4 +2852,127 @@ fn navigator_foreign_workspace_heading_keeps_the_workspace_target() {
             target: Some(ClientEndpointFocusTarget::Workspace(workspace_id)),
         }] if activated == &endpoint_id && workspace_id == "ws_1"
     ));
+}
+
+#[test]
+fn terminal_sessions_without_agent_detection_remain_visible_across_machines() {
+    let (mut state, remote) = state_with_remote();
+    let local = ClientEndpointId::Local;
+    let rows = aggregate_navigation::aggregate_agent_rows(
+        &state.endpoints,
+        &local,
+        crate::config::AgentPanelSortConfig::Priority,
+    );
+    let identities = rows
+        .iter()
+        .map(|row| (row.endpoint.endpoint_id.clone(), row.agent.pane_id.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        identities,
+        vec![
+            (local.clone(), "pane_1".into()),
+            (remote.clone(), "pane_1".into())
+        ]
+    );
+    assert!(rows
+        .iter()
+        .all(|row| row.agent.agent_status == AgentStatus::Unknown));
+    drop(rows);
+    assert!(state.activate_endpoint_projection(&remote));
+    let rows = aggregate_navigation::aggregate_agent_rows(
+        &state.endpoints,
+        &remote,
+        crate::config::AgentPanelSortConfig::Priority,
+    );
+    assert_eq!(rows.len(), 2);
+    drop(rows);
+    state.set_endpoint_status(&remote, ClientEndpointStatus::Reconnecting);
+    let rows = aggregate_navigation::aggregate_agent_rows(
+        &state.endpoints,
+        &local,
+        crate::config::AgentPanelSortConfig::Priority,
+    );
+    assert!(rows
+        .iter()
+        .find(|row| row.endpoint.endpoint_id == &remote)
+        .unwrap()
+        .endpoint
+        .stale());
+    let targets = aggregate_navigation::online_agent_targets(
+        &state.endpoints,
+        &local,
+        crate::config::AgentPanelSortConfig::Priority,
+    );
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].endpoint_id, local);
+}
+#[test]
+fn terminal_sessions_render_machine_labels_and_route_click_to_remote() {
+    let (mut state, remote) = state_with_remote();
+    let frame = state.compose(100, 40).unwrap();
+    let text = frame
+        .cells
+        .chunks(frame.width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("remote-workspace"), "{text}");
+    assert!(text.contains("terminal"), "{text}");
+    let (rect, _, pane) = state
+        .hits
+        .endpoint_agents
+        .iter()
+        .find(|(_, endpoint, _)| endpoint == &remote)
+        .cloned()
+        .expect("remote terminal hit target");
+    assert_eq!(pane, "pane_1");
+    let click = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: rect.x,
+        row: rect.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert!(click.actions.iter().any(|action| matches!(action, ClientShellAction::ActivateEndpoint { endpoint_id, target: Some(ClientEndpointFocusTarget::Pane(pane_id)) } if endpoint_id == &remote && pane_id == "pane_1")));
+}
+
+#[test]
+fn terminal_sessions_do_not_duplicate_detected_agents_or_escape_legacy_filter() {
+    let (mut state, remote) = state_with_remote();
+    let mut projection = snapshot();
+    projection.agents = vec![agent("detected", AgentStatus::Idle, 1)];
+    state.set_endpoint_snapshot(&remote, Box::new(projection.clone()));
+    let rows = aggregate_navigation::aggregate_agent_rows(
+        &state.endpoints,
+        &ClientEndpointId::Local,
+        crate::config::AgentPanelSortConfig::Priority,
+    );
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row.endpoint.endpoint_id == &remote)
+            .count(),
+        1
+    );
+    assert_eq!(
+        rows.iter()
+            .find(|row| row.endpoint.endpoint_id == &remote)
+            .unwrap()
+            .agent
+            .name
+            .as_deref(),
+        Some("detected")
+    );
+    drop(rows);
+    projection.agents.clear();
+    projection.agent_view_label = Some("only detected".into());
+    state.set_endpoint_snapshot(&remote, Box::new(projection));
+    let rows = aggregate_navigation::aggregate_agent_rows(
+        &state.endpoints,
+        &ClientEndpointId::Local,
+        crate::config::AgentPanelSortConfig::Priority,
+    );
+    assert!(rows.iter().all(|row| row.endpoint.endpoint_id != &remote));
 }
