@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Herdr HTML preview</title>
+<style>body{font:18px system-ui;background:#13202b;color:#f7f6f2;padding:32px}button{font:inherit;padding:12px;border-radius:8px;border:0;background:#9de0b5}output{display:block;margin-top:24px}</style>
+<h1>Herdr HTML preview</h1><p>This page runs beside your terminal.</p>
+<button id="test">Test interaction</button><output id="result">Ready</output>
+<script>document.getElementById('test').onclick=()=>document.getElementById('result').textContent='HTML, CSS and JavaScript work';
+if(location.hash==='#verify') {document.getElementById('test').click();document.body.dataset.background=getComputedStyle(document.body).backgroundColor;}</script>
+</html>
