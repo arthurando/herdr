@@ -8,6 +8,7 @@ tools\preview\herdr-preview.cmd http://localhost:3000
 ```
 
 The launcher needs Node.js and the installed Microsoft Edge. It does not download software.
+The requested Edge app window is visible. Native helper processes remain hidden.
 Copy this directory to a stable installation folder and put that folder on PATH to use
 `herdr-preview <file-or-url>` from a Herdr shell. Do not copy only the `.cmd` wrapper.
 

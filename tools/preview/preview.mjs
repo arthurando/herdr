@@ -75,8 +75,9 @@ export async function main(args) {
     const profileRoot = path.join(process.env.LOCALAPPDATA, 'herdr', 'preview', 'profiles');
     await mkdir(profileRoot, { recursive: true });
     const profile = await mkdtemp(path.join(profileRoot, 'panel-'));
-    const child = spawn(edge, [`--app=${url}`, `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--disable-background-mode', `--window-position=${bounds.x},${bounds.y}`, `--window-size=${bounds.width},${bounds.height}`], { windowsHide: true, stdio: 'ignore' });
-    console.log('Herdr HTML preview is open. Close its window to stop this preview.');
+    // This is the requested GUI. SW_HIDE also hides Edge's app window, not only consoles.
+    const child = spawn(edge, [`--app=${url}`, `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--disable-background-mode', `--window-position=${bounds.x},${bounds.y}`, `--window-size=${bounds.width},${bounds.height}`], { windowsHide: false, stdio: 'ignore' });
+    console.log('Herdr HTML preview launched. Close its window to stop this preview.');
     console.log(`Isolated browser profile: ${profile}`);
     await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`Edge exited with code ${code}`))); });
   } finally { if (local) await local.close(); }
