@@ -8,6 +8,8 @@ use ratatui::{
     widgets::{Block, Borders, Widget},
 };
 
+const MAX_DRAFT_BYTES: usize = 128 * 1024;
+
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum ComposeEffect {
     None,
@@ -52,12 +54,21 @@ impl ClientLocalCompose {
             self.status = "Send in progress; draft retained until acknowledgement.".into();
             return ComposeEffect::Send(self.input.as_str().to_owned());
         }
+        let before = self.input.clone();
         self.input.handle_key(key);
+        if self.input.len() > MAX_DRAFT_BYTES {
+            self.input = before;
+            self.status = "Draft limit is 128 KiB. Edit rejected; draft retained.".into();
+        }
         ComposeEffect::None
     }
 
     pub(super) fn insert_paste(&mut self, text: &str) {
         if !self.pending {
+            if text.len() > MAX_DRAFT_BYTES.saturating_sub(self.input.len()) {
+                self.status = "Draft limit is 128 KiB. Paste rejected; draft retained.".into();
+                return;
+            }
             self.input.insert(text);
         }
     }
@@ -214,6 +225,27 @@ mod tests {
         c.complete(Ok(()));
         assert_eq!(c.input.as_str(), "next");
     }
+    #[test]
+    fn draft_limit_rejects_large_paste_and_unicode_without_corruption() {
+        let mut c = compose();
+        c.insert_paste(&"x".repeat(MAX_DRAFT_BYTES - 2));
+        c.insert_paste("?");
+        assert_eq!(c.input.len(), MAX_DRAFT_BYTES - 2);
+        key(&mut c, KeyCode::Char('?'), KeyModifiers::NONE);
+        assert_eq!(c.input.len(), MAX_DRAFT_BYTES - 2);
+        c.insert_paste("ab");
+        assert_eq!(c.input.len(), MAX_DRAFT_BYTES);
+        key(&mut c, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(c.input.len(), MAX_DRAFT_BYTES);
+        assert!(c.status.contains("128 KiB"));
+        key(&mut c, KeyCode::Backspace, KeyModifiers::NONE);
+        key(&mut c, KeyCode::Backspace, KeyModifiers::NONE);
+        key(&mut c, KeyCode::Backspace, KeyModifiers::NONE);
+        c.insert_paste("?");
+        assert_eq!(c.input.len(), MAX_DRAFT_BYTES);
+        assert!(c.input.ends_with("?"));
+    }
+
     #[test]
     fn multiline_cursor_edits_previous_line_without_flattening() {
         let mut c = compose();
