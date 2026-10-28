@@ -44,7 +44,7 @@ pub(super) fn cached_endpoint_snapshots(
 
 pub(super) struct AggregateAgentRow<'a> {
     pub(super) endpoint: CachedEndpointSnapshot<'a>,
-    pub(super) agent: &'a ClientShellAgent,
+    pub(super) agent: std::borrow::Cow<'a, ClientShellAgent>,
     pub(super) recency: u64,
 }
 
@@ -94,10 +94,11 @@ pub(super) fn aggregate_agent_rows<'a>(
                             .copied()
                             .unwrap_or_default(),
                         endpoint,
-                        agent,
+                        agent: std::borrow::Cow::Borrowed(agent),
                     })
             })
             .collect::<Vec<_>>();
+        append_terminal_sessions(&mut rows, endpoints);
         if let Some(view) = view {
             let context = active_index
                 .and_then(|index| endpoints[index].snapshot.as_deref())
@@ -147,20 +148,74 @@ pub(super) fn aggregate_agent_rows<'a>(
                             .copied()
                             .unwrap_or_default(),
                         endpoint,
-                        agent,
+                        agent: std::borrow::Cow::Borrowed(agent),
                     })
                 })
         })
         .collect::<Vec<_>>();
+    // Legacy filtered snapshots contain only their server-selected agent order.
+    if active_index
+        .and_then(|index| endpoints[index].snapshot.as_deref())
+        .is_some_and(|snapshot| snapshot.agent_view_label.is_none())
+    {
+        append_terminal_sessions(&mut rows, endpoints);
+    }
     sort_aggregate_rows(&mut rows, sort);
     rows
+}
+
+fn append_terminal_sessions<'a>(
+    rows: &mut Vec<AggregateAgentRow<'a>>,
+    endpoints: &'a [ClientShellEndpoint],
+) {
+    for endpoint in cached_endpoint_snapshots(endpoints) {
+        if endpoint.snapshot.agent_view_label.is_some() {
+            continue;
+        }
+        let detected = endpoint
+            .snapshot
+            .agents
+            .iter()
+            .map(|agent| agent.pane_id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        for pane in &endpoint.snapshot.panes {
+            if detected.contains(pane.pane_id.as_str()) {
+                continue;
+            }
+            rows.push(AggregateAgentRow {
+                endpoint,
+                recency: 0,
+                agent: std::borrow::Cow::Owned(ClientShellAgent {
+                    pane_id: pane.pane_id.clone(),
+                    workspace_id: pane.workspace_id.clone(),
+                    tab_id: pane.tab_id.clone(),
+                    name: None,
+                    display_agent: Some("terminal".into()),
+                    agent: None,
+                    title: pane.label.clone(),
+                    terminal_title: None,
+                    terminal_title_stripped: None,
+                    agent_status: crate::api::schema::AgentStatus::Unknown,
+                    state_change_seq: 0,
+                    state_labels: vec![
+                        ("unknown".into(), "unknown".into()),
+                        ("idle".into(), "unknown".into()),
+                    ],
+                    tokens: Vec::new(),
+                    focused: pane.focused,
+                }),
+            });
+        }
+    }
 }
 
 fn sort_aggregate_rows(
     rows: &mut [AggregateAgentRow<'_>],
     sort: crate::config::AgentPanelSortConfig,
 ) {
-    if sort == crate::config::AgentPanelSortConfig::Priority {
+    if sort == crate::config::AgentPanelSortConfig::Spaces {
+        rows.sort_by_key(|row| row.endpoint.endpoint_index);
+    } else {
         rows.sort_by_key(|row| {
             (
                 row.endpoint.stale(),
@@ -179,12 +234,12 @@ struct ClientAgentViewEntry<'a> {
 }
 
 impl<'a> ClientAgentViewEntry<'a> {
-    fn new(row: &AggregateAgentRow<'a>) -> Self {
+    fn new(row: &'a AggregateAgentRow<'_>) -> Self {
         Self {
             endpoint_index: row.endpoint.endpoint_index,
             snapshot: row.endpoint.snapshot,
-            agent: row.agent,
-            seen: row.endpoint.agent_presentation.seen(row.agent),
+            agent: &row.agent,
+            seen: row.endpoint.agent_presentation.seen(&row.agent),
         }
     }
 }

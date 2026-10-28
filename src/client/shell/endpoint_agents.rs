@@ -134,28 +134,6 @@ fn agent_rows(
     active_endpoint_id: &ClientEndpointId,
     config: &ClientShellConfig,
 ) -> Vec<EndpointAgentRow> {
-    let mut rendered_rows = endpoints
-        .iter()
-        .filter_map(|endpoint| {
-            endpoint.snapshot.as_deref().map(|snapshot| {
-                snapshot
-                    .agents
-                    .iter()
-                    .filter_map(|agent| {
-                        super::agent_sidebar::agent_row(
-                            snapshot,
-                            &agent.pane_id,
-                            config,
-                            Some(&endpoint.label),
-                        )
-                    })
-                    .map(|agent| ((endpoint.endpoint_id.clone(), agent.pane_id.clone()), agent))
-                    .collect::<Vec<_>>()
-            })
-        })
-        .flatten()
-        .collect::<HashMap<_, _>>();
-
     super::aggregate_navigation::aggregate_agent_rows(
         endpoints,
         active_endpoint_id,
@@ -163,8 +141,12 @@ fn agent_rows(
     )
     .into_iter()
     .filter_map(|row| {
-        let key = (row.endpoint.endpoint_id.clone(), row.agent.pane_id.clone());
-        let mut agent = rendered_rows.remove(&key)?;
+        let mut agent = super::agent_sidebar::agent_row_from(
+            row.endpoint.snapshot,
+            &row.agent,
+            config,
+            Some(row.endpoint.label),
+        )?;
         agent.focused &= row.endpoint.endpoint_id == active_endpoint_id;
         Some(EndpointAgentRow {
             endpoint_id: row.endpoint.endpoint_id.clone(),

@@ -113,7 +113,11 @@ pub(super) fn render_agent_panel_header(
         area.x,
         area.y + 1,
         area.width,
-        " agents",
+        if agent_view_label.is_some() {
+            " agents"
+        } else {
+            " sessions"
+        },
         Style::default()
             .fg(config.palette.overlay0)
             .add_modifier(Modifier::BOLD),
@@ -255,6 +259,15 @@ pub(super) fn agent_row(
         .agents
         .iter()
         .find(|agent| agent.pane_id == pane_id)?;
+    agent_row_from(snapshot, agent, config, machine)
+}
+
+pub(super) fn agent_row_from(
+    snapshot: &ClientShellSnapshot,
+    agent: &crate::protocol::ClientShellAgent,
+    config: &ClientShellConfig,
+    machine: Option<&str>,
+) -> Option<AgentRow> {
     let workspace = snapshot
         .workspaces
         .iter()
