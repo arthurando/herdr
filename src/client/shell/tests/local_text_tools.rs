@@ -139,122 +139,43 @@ fn local_tools_use_stable_advertised_transport_and_retain_sent_draft() {
     assert!(output.requests.is_empty() && output.actions.is_empty());
 }
 
-fn enrolled_remote_state() -> ClientShellState {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(snapshot()));
+#[test]
+fn stale_enabled_draft_preferences_cannot_capture_remote_keys_or_paste() {
+    let path =
+        std::env::temp_dir().join(format!("herdr-direct-recovery-{}.json", std::process::id()));
+    let sidecar = path.with_extension("drafts.json");
+    let snapshot = snapshot();
+    let profile = "0123456789abcdef0123456789abcdef";
+    let pane_id = snapshot.focused_pane_id.clone().unwrap();
+    std::fs::write(
+        &sidecar,
+        serde_json::to_vec(&serde_json::json!({"version":1,"panes":[{
+            "profile_id":profile,"boot_id":snapshot.boot_id,"pane_id":pane_id,"enabled":true
+        }]}))
+        .unwrap(),
+    )
+    .unwrap();
+    let config = ClientShellConfig::from_config(&Config::default()).with_preferences_path(path);
+    let mut state = ClientShellState::new(config);
+    state.set_snapshot(Box::new(snapshot));
     state.set_pane_surface(surface());
-    state.active_endpoint_id = ClientEndpointId::Ssh(
-        crate::client::endpoint::ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
-    );
-    state.draft_defaults = serde_json::from_value(serde_json::json!({"version":1,"panes":[{
-        "profile_id":"0123456789abcdef0123456789abcdef", "boot_id":state.snapshot.as_ref().unwrap().boot_id,
-        "pane_id":state.focused_pane_id().unwrap(),"enabled":true
-    }]})).unwrap();
-    state
-}
-
-#[test]
-fn enrolled_remote_printable_key_and_paste_stay_local_without_request() {
-    let mut state = enrolled_remote_state();
-    let output = state.handle_raw_events(vec![
-        RawInputEvent::Key(crate::input::TerminalKey::new(
-            KeyCode::Char('a'),
-            KeyModifiers::NONE,
-        )),
-        RawInputEvent::Paste("bc".into()),
-    ]);
-    assert!(output.requests.is_empty() && output.actions.is_empty());
-    let Some(ClientShellOverlay::LocalCompose(draft)) = state.overlay.as_ref() else {
-        panic!("default draft missing")
-    };
-    assert_eq!(draft.input.as_str(), "abc");
-}
-
-#[test]
-fn default_draft_fences_boot_and_direct_toggle_preserves_draft() {
-    let mut state = enrolled_remote_state();
-    state
-        .snapshot
-        .as_mut()
-        .unwrap()
-        .boot_id
-        .push_str("-restarted");
-    assert!(!state.default_draft_enabled());
-    let mut state = enrolled_remote_state();
-    state.handle_raw_events(vec![RawInputEvent::Paste("retained".into())]);
-    state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
-        KeyCode::Esc,
-        KeyModifiers::NONE,
-    ))]);
-    state.set_default_draft(false);
-    assert!(!state.default_draft_enabled());
+    state.active_endpoint_id =
+        ClientEndpointId::Ssh(crate::client::endpoint::ProfileId::parse(profile).unwrap());
+    let key_result = state.handle_raw_events(vec![RawInputEvent::Key(
+        crate::input::TerminalKey::new(KeyCode::Char('x'), KeyModifiers::NONE),
+    )]);
     assert!(state.overlay.is_none());
-    assert_eq!(state.local_compose_drafts[0].input.as_str(), "retained");
-    state.set_default_draft(true);
-    assert!(state.default_draft_enabled());
-}
-
-#[test]
-fn default_draft_does_not_capture_control_shortcuts_or_local_panes() {
-    let mut state = enrolled_remote_state();
-    state.handle_raw_events(vec![RawInputEvent::Key(crate::input::TerminalKey::new(
-        KeyCode::Char('c'),
-        KeyModifiers::CONTROL,
-    ))]);
-    assert!(state.overlay.is_none());
-    state.active_endpoint_id = ClientEndpointId::Local;
-    assert!(!state.default_draft_enabled());
-}
-
-#[test]
-fn default_draft_consumes_release_and_preserves_generated_text_once() {
-    let mut state = enrolled_remote_state();
-    let mut key = crate::input::TerminalKey::new(KeyCode::Char('a'), KeyModifiers::NONE);
-    key.generated_text = Some("x".into());
-    let release = key
-        .clone()
-        .with_kind(crossterm::event::KeyEventKind::Release);
-    let output =
-        state.handle_raw_events(vec![RawInputEvent::Key(key), RawInputEvent::Key(release)]);
-    assert!(output.requests.is_empty() && output.actions.is_empty());
-    let Some(ClientShellOverlay::LocalCompose(draft)) = state.overlay.as_ref() else {
-        panic!("draft missing")
-    };
-    assert_eq!(draft.input.as_str(), "x");
-}
-
-#[test]
-fn default_draft_repeat_stays_local_and_chrome_shows_mode() {
-    let mut state = enrolled_remote_state();
-    let key = crate::input::TerminalKey::new(KeyCode::Char('a'), KeyModifiers::NONE);
-    let output = state.handle_raw_events(vec![
-        RawInputEvent::Key(key.clone()),
-        RawInputEvent::Key(key.with_kind(crossterm::event::KeyEventKind::Repeat)),
-    ]);
-    assert!(output.requests.is_empty() && output.actions.is_empty());
-    let Some(ClientShellOverlay::LocalCompose(draft)) = state.overlay.as_ref() else {
-        panic!("draft missing")
-    };
-    assert_eq!(draft.input.as_str(), "aa");
-    state.overlay = None;
-    let frame = state.compose(106, 30).unwrap();
-    let text: String = frame
-        .cells
-        .iter()
-        .map(|cell| cell.symbol.as_str())
-        .collect();
-    assert!(text.contains(" draft "));
-    state.set_default_draft(false);
-    let frame = state.compose(106, 30).unwrap();
-    let text: String = frame
-        .cells
-        .iter()
-        .map(|cell| cell.symbol.as_str())
-        .collect();
-    assert!(text.contains(" direct "));
-    state.toggle_global_menu();
     assert!(
-        state.compose(24, 12).is_some(),
-        "narrow menu remains bounded"
+        matches!(&key_result.requests[..], [ClientMessage::ClientShellPaneInput { pane_id: target, events }]
+        if target == &pane_id && matches!(&events[..], [ClientPaneInputEvent::Key { code: crate::protocol::ClientKeyCode::Char('x'), kind: crate::protocol::ClientKeyKind::Press, modifiers: 0, .. }]))
     );
+    let paste_result = state.handle_raw_events(vec![RawInputEvent::Paste("direct paste".into())]);
+    assert!(state.overlay.is_none());
+    assert!(paste_result.requests.iter().any(|m| matches!(m, ClientMessage::ClientShellPaneInput { events, .. } if events.iter().any(|event| matches!(event, ClientPaneInputEvent::Paste(text) if text == "direct paste")))));
+    let ime_result = state.handle_raw_events(vec![RawInputEvent::Text(
+        crate::input::TextCommit::new("IME text"),
+    )]);
+    assert!(state.overlay.is_none());
+    assert!(ime_result.requests.iter().any(|m| matches!(m, ClientMessage::ClientShellPaneInput { events, .. } if events.iter().any(|event| matches!(event, ClientPaneInputEvent::TextCommit(text) if text == "IME text")))));
+    std::fs::remove_file(sidecar).unwrap();
 }

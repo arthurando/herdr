@@ -15,23 +15,6 @@ pub(crate) fn render_tab_bar(
     hits: &mut ShellHitMap,
 ) {
     let palette = &config.palette;
-    let area = if let Some(label) = config.draft_mode_label {
-        let width = (display_width(label) + 2).min(area.width);
-        put_text(
-            buffer,
-            area.right().saturating_sub(width),
-            area.y,
-            width,
-            &format!(" {label} "),
-            Style::default().fg(palette.accent).bg(palette.panel_bg),
-        );
-        Rect {
-            width: area.width.saturating_sub(width),
-            ..area
-        }
-    } else {
-        area
-    };
     buffer.set_style(area, Style::default().bg(palette.panel_bg));
     let tabs = snapshot
         .tabs

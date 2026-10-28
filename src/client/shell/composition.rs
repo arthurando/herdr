@@ -152,7 +152,6 @@ impl ClientShellState {
         cols: u16,
         rows: u16,
     ) -> Option<crate::client::frame_output::ComposedFrame> {
-        self.config.draft_mode_label = self.draft_mode_label();
         self.last_composed_at = Some(std::time::Instant::now());
         self.selection_repaint_deadline = None;
         if self.last_composed_size != Some((cols, rows)) && self.mode == ClientShellMode::Navigate {
@@ -658,7 +657,6 @@ impl ClientShellState {
                     menu,
                     snapshot,
                     &self.config.palette,
-                    self.default_draft_enabled(),
                 )?;
                 occlusion.cover(rendered.area);
                 self.hits.global_menu_rows = rendered.menu_rows;

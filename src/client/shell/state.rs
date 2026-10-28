@@ -48,7 +48,6 @@ pub(crate) struct ClientShellConfig {
     pub(super) switch_ascii_input_source_in_prefix: bool,
     pub(super) local_config_path: std::path::PathBuf,
     pub(super) preferences_path: Option<std::path::PathBuf>,
-    pub(super) draft_mode_label: Option<&'static str>,
     pub(super) preferences: preferences::ClientChromePreferences,
     pub(super) startup_config_diagnostic: Option<String>,
     pub(super) startup_onboarding: bool,
@@ -871,8 +870,6 @@ pub(super) struct ClientCopyModeState {
 pub(crate) struct ClientShellState {
     pub(super) local_history_cache: LocalHistoryCache,
     pub(super) local_compose_drafts: Vec<ClientLocalCompose>,
-    pub(super) draft_defaults: local_draft_defaults::DraftDefaults,
-    pub(super) draft_defaults_path: Option<std::path::PathBuf>,
     pub(super) machine_diagnostics: super::machine_diagnostics::MachineDiagnostics,
     pub(super) config: ClientShellConfig,
     pub(super) snapshot: Option<Box<ClientShellSnapshot>>,
@@ -1010,12 +1007,6 @@ pub(super) struct WorkspaceEntry {
 
 impl ClientShellState {
     pub(crate) fn new(mut config: ClientShellConfig) -> Self {
-        let draft_defaults_path = config
-            .preferences_path
-            .as_ref()
-            .map(|p| p.with_extension("drafts.json"));
-        let draft_defaults =
-            local_draft_defaults::DraftDefaults::load(draft_defaults_path.as_deref());
         let preferences = config.preferences.clone();
         let local_config_diagnostic = config.startup_config_diagnostic.take();
         let overlay = config
@@ -1059,8 +1050,6 @@ impl ClientShellState {
             pane_surface_generation: None,
             local_history_cache: LocalHistoryCache::default(),
             local_compose_drafts: Vec::new(),
-            draft_defaults,
-            draft_defaults_path,
             pane_surface: None,
             pending_pane_surface: None,
             graphics: crate::kitty_graphics::surface::ClientState::new(),

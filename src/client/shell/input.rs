@@ -247,9 +247,6 @@ impl ClientShellState {
                 }
                 RawInputEvent::Text(text) => {
                     let text = text.into_string();
-                    if self.capture_default_draft_text(&text, &mut outcome) {
-                        continue;
-                    }
                     if self.local_text_tool_active() {
                         outcome.repaint |= self.insert_overlay_text(&text);
                         continue;
@@ -287,9 +284,6 @@ impl ClientShellState {
                     }
                 }
                 RawInputEvent::Paste(text) => {
-                    if self.capture_default_draft_text(&text, &mut outcome) {
-                        continue;
-                    }
                     if self.local_text_tool_active() {
                         outcome.repaint |= self.insert_overlay_text(&text);
                         continue;
@@ -408,22 +402,12 @@ impl ClientShellState {
         let key = self.input_leases.normalize_press(&lease_key, key);
         match key.kind {
             KeyEventKind::Press => {
-                let auto_draft_eligible = self.default_draft_enabled()
-                    && self.overlay.is_none()
-                    && self.mode == ClientShellMode::Terminal;
-                let mut initial_context = self.input_context();
+                let initial_context = self.input_context();
                 let target = self.route_key_press(&key, outcome);
                 if let Some(target) = target.as_ref() {
                     self.push_pane_key(target.clone(), key.clone(), outcome);
                 }
                 let resulting_context = self.input_context();
-                if auto_draft_eligible
-                    && target.is_none()
-                    && matches!(self.overlay, Some(ClientShellOverlay::LocalCompose(_)))
-                {
-                    // This printable press owns the new editor; its repeats stay there too.
-                    initial_context = resulting_context.clone();
-                }
                 let plan = self.input_leases.complete_press(
                     lease_key,
                     &key,
@@ -582,12 +566,6 @@ impl ClientShellState {
         {
             return false;
         }
-        if self.default_draft_enabled()
-            && self.overlay.is_none()
-            && self.mode == ClientShellMode::Terminal
-        {
-            return true;
-        }
         if self.mode == ClientShellMode::Copy
             && self.overlay.is_none()
             && self
@@ -634,9 +612,6 @@ impl ClientShellState {
             return false;
         }
         if let Some(text) = read_clipboard_text() {
-            if self.capture_default_draft_text(&text, outcome) {
-                return true;
-            }
             let inserted = self.insert_copy_search_text(&text) || self.insert_overlay_text(&text);
             outcome.repaint |= inserted;
         }
@@ -720,20 +695,6 @@ impl ClientShellState {
                     self.mode = ClientShellMode::Prefix;
                     outcome.repaint = true;
                     return None;
-                }
-                if !key
-                    .modifiers
-                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
-                {
-                    let text = key.generated_text.clone().or_else(|| match key.code {
-                        KeyCode::Char(c) if !c.is_control() => Some(c.to_string()),
-                        _ => None,
-                    });
-                    if let Some(text) = text {
-                        if self.capture_default_draft_text(&text, outcome) {
-                            return None;
-                        }
-                    }
                 }
                 self.focused_pane_id().map(ClientInputTarget::Pane)
             }
@@ -1237,7 +1198,7 @@ impl ClientShellState {
             .or_else(|| self.input_leases.remove_sole_text_press(LOCAL_INPUT_SOURCE))
     }
 
-    pub(super) fn popup_input_target(&self) -> Option<ClientInputTarget> {
+    fn popup_input_target(&self) -> Option<ClientInputTarget> {
         self.popup_terminal_id
             .as_ref()
             .map(|terminal_id| ClientInputTarget::Popup(terminal_id.clone()))

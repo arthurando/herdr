@@ -101,10 +101,22 @@ try:
     deadline=time.perf_counter()+5
     while old.proc.isalive() and time.perf_counter()<deadline: time.sleep(.05)
     assert not old.proc.isalive(), 'Old client did not detach'
+    # A previous build may leave enabled automatic-draft preferences behind.
+    # The recovery client must ignore them and retain ordinary direct input.
+    socket = root/'roaming/herdr/sessions'/session/'herdr-client.sock'
+    pref_hash = 0xcbf29ce484222325
+    for byte in str(socket).encode(): pref_hash = ((pref_hash ^ byte) * 0x100000001b3) & 0xffffffffffffffff
+    sidecar = root/'local/herdr/client-shell'/f'local-{pref_hash:016x}.drafts.json'
+    sidecar.parent.mkdir(parents=True, exist_ok=True)
+    sidecar.write_text(json.dumps({'version':1,'panes':[{'profile_id':'0123456789abcdef0123456789abcdef','boot_id':'fixture-boot','pane_id':'w1:p1','enabled':True}]}), encoding='utf-8')
+    receipt['checks']['stale_enabled_sidecar'] = str(sidecar)
     client = Client(args.candidate, ('client',))
     client.wait(re.escape(str(root)+'>'))
     assert server.is_running()
     receipt['checks']['stable_server_preserved_on_attach'] = pid
+    client.action('echo __DIRECT_KEY_%RANDOM%\r', r'__DIRECT_KEY_\d+')
+    client.action('\x1b[200~echo __DIRECT_PASTE_%RANDOM%\x1b[201~\r', r'__DIRECT_PASTE_\d+')
+    receipt['checks']['ordinary_key_and_paste_execute_without_compose'] = True
     client.action('for /L %i in (1,1,80) do @echo HISTORY_%i\r', r'HISTORY_80')
     client.action('\x02U', 'Local text snapshot')
     client.action('r', 'Fetched terminal rows')

@@ -156,7 +156,6 @@ impl ClientShellConfig {
                 .switch_ascii_input_source_in_prefix,
             local_config_path: crate::config::config_path(),
             preferences_path: None,
-            draft_mode_label: None,
             preferences: preferences::ClientChromePreferences::default(),
             startup_config_diagnostic: None,
             startup_onboarding: false,

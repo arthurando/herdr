@@ -4,8 +4,6 @@ use super::*;
 pub(super) enum ClientGlobalMenuAction {
     LocalHistory,
     LocalCompose,
-    DraftDefault,
-    DirectDefault,
     Binding(crate::input::KeybindAction),
     WhatsNew,
 }
@@ -56,14 +54,6 @@ pub(super) fn global_menu_items(
     ));
     items.push(("local text", ClientGlobalMenuAction::LocalHistory));
     items.push(("local compose", ClientGlobalMenuAction::LocalCompose));
-    items.push((
-        "use local draft input",
-        ClientGlobalMenuAction::DraftDefault,
-    ));
-    items.push((
-        "use direct terminal input",
-        ClientGlobalMenuAction::DirectDefault,
-    ));
     items
 }
 
@@ -116,8 +106,6 @@ impl ClientShellState {
         match action {
             ClientGlobalMenuAction::LocalHistory => self.open_local_history(),
             ClientGlobalMenuAction::LocalCompose => self.open_local_compose(),
-            ClientGlobalMenuAction::DraftDefault => self.set_default_draft(true),
-            ClientGlobalMenuAction::DirectDefault => self.set_default_draft(false),
             ClientGlobalMenuAction::Binding(binding) => {
                 self.record_binding(crate::input::KeybindMatch::Action(binding), outcome)
             }
