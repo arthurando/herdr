@@ -103,3 +103,11 @@ Ordinary key, committed text and paste events always use the terminal input path
 The recovery preserves remote pane fallback rows and the activation fence optimization. Ordinary remote typing and application scroll still require the remote host. Existing live trace shows about400ms first-response gaps, with local input queues below2ms. This release restores direct behavior; it does not claim to remove transport latency.
 
 The isolated client/server smoke writes stale enabled preferences and executes ordinary typed and pasted commands without compose. A remote-route regression uses exact matching profile/boot/pane enrollment and verifies key, paste and IME text independently reach terminal transport with no overlay. Production panes receive no test input.
+
+## Sid relay operation
+
+Sid uses runtime Tailscale preferred relay `20` (Hong Kong). Apply on Sid with `tailscale debug force-prefer-derp 20`, then `tailscale debug restun`. Restore automatic selection with preference `0` and `restun`. This preference ends when Tailscale restarts; no persistence task is installed.
+
+The live route check on 2026-10-28 measured ten Hong Kong replies at 189-192ms (median190ms), versus the Nuremberg baseline median381ms. All replies arrived and Sid VM SSH remained available. This measures network RTT, not key-to-echo or application-scroll latency. Confirm `Self.Relay` and actual `DERP(hkg)` ping output after reapplication. The ping tool can exit nonzero because no direct peer connection forms even when every relay reply arrives.
+
+The direct-input client is installed separately as `local.direct-input-20261028`. The original server stays running. Client-only activation uses the new executable with `client`; production client activation still requires the user's terminal. Do not replace the server to activate this presentation change.
