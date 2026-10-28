@@ -24,6 +24,7 @@ mod input_source;
 mod link_hover;
 mod local_compose;
 mod local_compose_actions;
+mod local_draft_defaults;
 mod local_history;
 use local_compose::ClientLocalCompose;
 use local_history::{ClientLocalHistory, HistoryKey, LocalHistoryCache};

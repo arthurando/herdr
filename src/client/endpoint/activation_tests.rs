@@ -247,6 +247,7 @@ fn machine() -> PendingEndpointActivation {
         deadline: Instant::now() + ACTIVATION_TIMEOUT,
         epoch: 3,
         next_focus_serial: 0,
+        next_presentation_serial: 0,
         rollback_error: None,
         successor: None,
     }
@@ -267,6 +268,7 @@ fn source_off_request_is_distinct_and_precedes_target_on_phase() {
         deadline: Instant::now() + ACTIVATION_TIMEOUT,
         epoch: 9,
         next_focus_serial: 0,
+        next_presentation_serial: 0,
         rollback_error: None,
         successor: None,
     };
@@ -1796,4 +1798,161 @@ fn resize_message_preserves_the_latest_surface_dimensions() {
         resize_geometry(&resize()),
         Some(crate::protocol::ClientSurfaceSize { cols: 80, rows: 24 })
     );
+}
+
+#[test]
+fn presentation_fence_is_pipelined_but_cannot_replace_coherent_frame() {
+    let (_shell, mut endpoints, _, sent) = shell_and_registry();
+    let mut activation = machine();
+    activation
+        .start_presentation_sync(
+            &mut endpoints,
+            lease(endpoint(), 7, "remote-boot"),
+            ActivationCompletion::Activated,
+        )
+        .unwrap();
+    let messages = sent.lock().unwrap();
+    assert_eq!(
+        messages.len(),
+        2,
+        "surface sync and effects fence leave in the same flight"
+    );
+    assert!(
+        matches!(&messages[1], crate::protocol::ClientMessage::EndpointControl { kind, .. } if kind == crate::protocol::endpoint::PRESENTATION_EFFECTS_SYNC_KIND)
+    );
+    drop(messages);
+    assert_eq!(
+        activation.receive_presentation_effects_ready(
+            &ClientEndpointId::Local,
+            7,
+            "3:7:remote-boot"
+        ),
+        SurfaceActivationProgress::Stale
+    );
+    assert_eq!(
+        activation.receive_presentation_effects_ready(&endpoint(), 8, "3:7:remote-boot"),
+        SurfaceActivationProgress::Stale
+    );
+    assert_eq!(
+        activation.receive_presentation_effects_ready(&endpoint(), 7, "3:7:remote-boot"),
+        SurfaceActivationProgress::Pending
+    );
+    assert_eq!(
+        activation.receive_response(
+            &endpoint(),
+            7,
+            "client-shell-surface:3:presentation-sync",
+            &surface_success("client-shell-surface:3:presentation-sync", true, 2),
+            &mut endpoints
+        ),
+        SurfaceActivationProgress::Pending
+    );
+    assert_eq!(
+        activation.receive_snapshot(&endpoint(), 7, &test_snapshot("remote-boot", 2)),
+        SurfaceActivationProgress::Pending
+    );
+    assert_eq!(
+        activation.receive_surface(&endpoint(), 7, surface("remote-boot", 2, "pane")),
+        SurfaceActivationProgress::Ready
+    );
+}
+
+#[test]
+fn resize_retires_pipelined_effects_and_surface_acknowledgements() {
+    let (_shell, mut endpoints, _, _) = shell_and_registry();
+    let mut activation = machine();
+    activation
+        .start_presentation_sync(
+            &mut endpoints,
+            lease(endpoint(), 7, "remote-boot"),
+            ActivationCompletion::Activated,
+        )
+        .unwrap();
+    activation.update_resize(resize(), &mut endpoints).unwrap();
+    assert_eq!(
+        activation.receive_presentation_effects_ready(&endpoint(), 7, "3:7:remote-boot"),
+        SurfaceActivationProgress::Stale
+    );
+    assert_eq!(
+        activation.receive_response(
+            &endpoint(),
+            7,
+            "client-shell-surface:3:presentation-sync",
+            &surface_success("client-shell-surface:3:presentation-sync", true, 2),
+            &mut endpoints
+        ),
+        SurfaceActivationProgress::Stale
+    );
+    assert_eq!(
+        activation.receive_presentation_effects_ready(&endpoint(), 7, "3:7:remote-boot:1"),
+        SurfaceActivationProgress::Pending
+    );
+}
+
+#[test]
+fn delayed_presentation_flights_keep_input_fenced_and_save_one_round_trip() {
+    // Replay the old sequential response schedule and the new overlapping schedule with
+    // the same delayed fake endpoint. This measures the final synchronization phase only.
+    let run = |overlap: bool| {
+        let (mut shell, mut endpoints, _, _) = shell_and_registry();
+        endpoints.set_surface_active(&endpoint(), true);
+        assert!(endpoints.set_active(&endpoint()));
+        endpoints.freeze_input();
+        let mut activation = machine();
+        activation
+            .start_presentation_sync(
+                &mut endpoints,
+                lease(endpoint(), 7, "remote-boot"),
+                ActivationCompletion::Activated,
+            )
+            .unwrap();
+        let started = Instant::now();
+        std::thread::sleep(Duration::from_millis(40));
+        assert!(!endpoints.active_surface_available());
+        if overlap {
+            assert_eq!(
+                activation.receive_presentation_effects_ready(&endpoint(), 7, "3:7:remote-boot"),
+                SurfaceActivationProgress::Pending
+            );
+        }
+        activation.receive_response(
+            &endpoint(),
+            7,
+            "client-shell-surface:3:presentation-sync",
+            &surface_success("client-shell-surface:3:presentation-sync", true, 2),
+            &mut endpoints,
+        );
+        let snapshot = test_snapshot("remote-boot", 2);
+        shell.set_endpoint_snapshot_for_generation(&endpoint(), 7, Box::new(snapshot.clone()));
+        activation.receive_snapshot(&endpoint(), 7, &snapshot);
+        activation.receive_surface(&endpoint(), 7, surface("remote-boot", 2, "pane"));
+        let completion = activation.complete(&mut shell, &mut endpoints).unwrap();
+        if overlap {
+            assert_eq!(completion, ActivationCompletion::Activated);
+        } else {
+            assert_eq!(
+                completion,
+                ActivationCompletion::AwaitingPresentationEffects
+            );
+            assert!(!endpoints.active_surface_available());
+            std::thread::sleep(Duration::from_millis(40));
+            assert_eq!(
+                activation.receive_presentation_effects_ready(&endpoint(), 7, "3:7:remote-boot"),
+                SurfaceActivationProgress::Ready
+            );
+            assert_eq!(
+                activation.complete(&mut shell, &mut endpoints).unwrap(),
+                ActivationCompletion::Activated
+            );
+        }
+        assert!(
+            !endpoints.active_surface_available(),
+            "only runtime can release input after completion"
+        );
+        started.elapsed()
+    };
+    let sequential = run(false);
+    let overlapped = run(true);
+    eprintln!("delayed fake endpoint: sequential={sequential:?}, pipelined={overlapped:?}; imposed RTT=40ms");
+    // Exact flight counts are asserted above; wall-clock ratios are not a flaky CI gate.
 }

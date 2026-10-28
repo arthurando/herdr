@@ -116,6 +116,7 @@ impl PendingEndpointActivation {
             deadline: now + ACTIVATION_TIMEOUT,
             epoch: serial,
             next_focus_serial: 0,
+            next_presentation_serial: 0,
             rollback_error: None,
             successor: None,
         })
@@ -572,21 +573,31 @@ impl PendingEndpointActivation {
         generation: u64,
         token: &str,
     ) -> SurfaceActivationProgress {
-        let ActivationPhase::AwaitingPresentationEffects {
-            lease,
-            token: expected,
-            ready,
-            ..
-        } = &mut self.phase
-        else {
-            return SurfaceActivationProgress::Stale;
+        let (lease, expected, ready, synchronizing) = match &mut self.phase {
+            ActivationPhase::SynchronizingPresentation {
+                lease,
+                effects_token,
+                effects_ready,
+                ..
+            } => (lease, effects_token, effects_ready, true),
+            ActivationPhase::AwaitingPresentationEffects {
+                lease,
+                token,
+                ready,
+                ..
+            } => (lease, token, ready, false),
+            _ => return SurfaceActivationProgress::Stale,
         };
         if lease.endpoint_id != *endpoint_id || lease.generation != generation || expected != token
         {
             return SurfaceActivationProgress::Stale;
         }
         *ready = true;
-        SurfaceActivationProgress::Ready
+        if synchronizing {
+            self.progress()
+        } else {
+            SurfaceActivationProgress::Ready
+        }
     }
 
     /// A same-endpoint navigation request replaces the desired target but never joins the
@@ -627,6 +638,9 @@ impl PendingEndpointActivation {
         self.resize = resize.clone();
         let restart_effects_fence = match &self.phase {
             ActivationPhase::AwaitingPresentationEffects {
+                lease, completion, ..
+            }
+            | ActivationPhase::SynchronizingPresentation {
                 lease, completion, ..
             } => Some((lease.clone(), (**completion).clone())),
             _ => None,
@@ -890,9 +904,13 @@ impl PendingEndpointActivation {
             acknowledged_revision,
             evidence,
             completion,
+            effects_token,
+            effects_ready,
             ..
         } = &self.phase
         {
+            let token = effects_token.clone();
+            let ready = *effects_ready;
             let lease = lease.clone();
             let completion = (**completion).clone();
             let surface = coherent_completion_surface(
@@ -911,7 +929,20 @@ impl PendingEndpointActivation {
                 );
             }
             shell.set_pane_surface(surface);
-            self.start_presentation_effects_fence(endpoints, lease, completion)?;
+            self.phase = ActivationPhase::AwaitingPresentationEffects {
+                lease,
+                token,
+                ready,
+                completion: Box::new(completion.clone()),
+            };
+            if ready {
+                super::super::latency_trace::mark(
+                    "activation_ready",
+                    self.epoch as usize,
+                    !self.target.endpoint_id.is_local(),
+                );
+                return Ok(completion);
+            }
             return Ok(ActivationCompletion::AwaitingPresentationEffects);
         }
         if let ActivationPhase::AwaitingPresentationEffects {
@@ -1030,7 +1061,23 @@ impl PendingEndpointActivation {
         lease: EndpointLease,
         completion: ActivationCompletion,
     ) -> Result<(), String> {
-        let request_id = format!("client-shell-surface:{}:presentation-sync", self.epoch);
+        let serial = self.next_presentation_serial;
+        self.next_presentation_serial = serial
+            .checked_add(1)
+            .ok_or("presentation fence serial exhausted")?;
+        let suffix = if serial == 0 {
+            String::new()
+        } else {
+            format!(":{serial}")
+        };
+        let request_id = format!(
+            "client-shell-surface:{}:presentation-sync{suffix}",
+            self.epoch
+        );
+        let token = format!(
+            "{}:{}:{}{suffix}",
+            self.epoch, lease.generation, lease.boot_id
+        );
         let request = surface_interest_request(&lease.boot_id, request_id.clone(), true)
             .map_err(|error| error.to_string())?;
         self.phase = ActivationPhase::SynchronizingPresentation {
@@ -1039,28 +1086,16 @@ impl PendingEndpointActivation {
             acknowledged_revision: None,
             evidence: ActivationEvidence::default(),
             completion: Box::new(completion),
+            effects_token: token.clone(),
+            effects_ready: false,
         };
         self.deadline = Instant::now() + ACTIVATION_TIMEOUT;
         if endpoints.send_to(&lease.endpoint_id, &request) != EndpointSendOutcome::Sent {
             return Err("endpoint presentation synchronization could not be sent".into());
         }
-        Ok(())
-    }
-
-    fn start_presentation_effects_fence(
-        &mut self,
-        endpoints: &mut EndpointRegistry,
-        lease: EndpointLease,
-        completion: ActivationCompletion,
-    ) -> Result<(), String> {
-        let token = format!("{}:{}:{}", self.epoch, lease.generation, lease.boot_id);
-        self.phase = ActivationPhase::AwaitingPresentationEffects {
-            lease: lease.clone(),
-            token: token.clone(),
-            ready: false,
-            completion: Box::new(completion),
-        };
-        self.deadline = Instant::now() + ACTIVATION_TIMEOUT;
+        // Both requests share one ordered transport. The caller has committed the coherent
+        // target and unfreezes presentation before it can process any replies. Keep the
+        // frame and effects barriers independent: either reply may arrive first.
         let message = crate::protocol::ClientMessage::EndpointControl {
             kind: crate::protocol::endpoint::PRESENTATION_EFFECTS_SYNC_KIND.into(),
             data: token,

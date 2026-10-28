@@ -45,6 +45,23 @@ impl ClientShellState {
         key: &crate::input::TerminalKey,
         outcome: &mut ClientShellInput,
     ) -> bool {
+        if matches!(self.overlay, Some(ClientShellOverlay::LocalCompose(_)))
+            && key.kind == crossterm::event::KeyEventKind::Press
+            && matches!(key.code, KeyCode::Char('d' | 'D'))
+            && key.modifiers
+                == (crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::SHIFT)
+        {
+            self.set_default_draft(false);
+            if !self.default_draft_enabled() {
+                if let Some(ClientShellOverlay::LocalCompose(draft)) = self.overlay.take() {
+                    if !draft.input.is_empty() {
+                        self.local_compose_drafts.push(draft);
+                    }
+                }
+            }
+            outcome.repaint = true;
+            return true;
+        }
         let Some(ClientShellOverlay::LocalCompose(draft)) = self.overlay.as_mut() else {
             return false;
         };

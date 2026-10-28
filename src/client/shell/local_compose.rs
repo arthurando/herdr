@@ -149,14 +149,14 @@ impl ClientLocalCompose {
         buffer.set_stringn(
             inner.x,
             inner.y,
-            "Enter: new line | Ctrl+Enter: send text | Esc: close",
+            "Enter: newline | Ctrl+Enter: send | Ctrl+Shift+D: direct | Esc: close",
             usize::from(inner.width),
             style,
         );
         buffer.set_stringn(
             inner.x,
             inner.bottom() - 2,
-            "Local draft. No Enter appended. Line breaks may submit commands.",
+            "Plain text draft, not passwords. No Enter appended; newlines may submit.",
             usize::from(inner.width),
             style,
         );

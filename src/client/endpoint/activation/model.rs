@@ -91,6 +91,8 @@ pub(super) enum ActivationPhase {
         acknowledged_revision: Option<u64>,
         evidence: ActivationEvidence,
         completion: Box<ActivationCompletion>,
+        effects_token: String,
+        effects_ready: bool,
     },
     AwaitingPresentationEffects {
         lease: EndpointLease,
@@ -167,6 +169,7 @@ pub(crate) struct PendingEndpointActivation {
     pub(super) deadline: Instant,
     pub(super) epoch: u64,
     pub(super) next_focus_serial: u64,
+    pub(super) next_presentation_serial: u64,
     pub(super) rollback_error: Option<String>,
     /// A different endpoint was selected while this source-off-first transaction was in flight.
     /// Keep only the latest intent until source restoration commits.

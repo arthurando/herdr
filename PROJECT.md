@@ -89,3 +89,17 @@ Architecture choice: bounded in-process stage tokens rather than another ETW-onl
 CPU sample, because the latter cannot identify input and RPC queue delay.
 The prior local-mode experiment proves its explicit tools only, not ordinary
 remote echo, remote application wheel response or cross-machine latency.
+
+
+## Endpoint activation latency
+
+The client pipelines the presentation-effects fence after the second surface-sync request on the same ordered transport. This starts only after the initial coherent target commit. Input remains frozen until both the coherent revision/geometry frame and the matching effects token arrive. Each resync uses unique request and fence identifiers, so resize and focus changes reject stale acknowledgements. This removes one serial network round trip from machine activation; it does not reduce ordinary remote typing echo time. The delayed fake-endpoint test compares sequential and overlapping response schedules; live verification remains separate.
+
+
+## Default local drafts for enrolled remote panes
+
+A client-only `.drafts.json` sidecar sits beside the normal client-shell preferences file (replace its `.json` extension). Schema: `{"version":1,"panes":[{"profile_id":"32-lowercase-hex","boot_id":"exact-server-boot","pane_id":"exact-pane-id","enabled":true}]}`. Keep actual private enrollment values outside the repository. The client reads at most64KiB and128 entries. Invalid files disable automatic capture. The stable server and shared config remain unchanged.
+
+For an enrolled current remote pane, normal printable keys, committed IME text, and paste open a local plain-text draft immediately. No draft bytes go remote until explicit Ctrl+Enter Send. Control/navigation keys and other panes retain terminal behavior. This is not password detection: use direct terminal input for passwords or raw terminal applications. Ctrl+Shift+D in the composer preserves the draft and selects direct input. The global menu can select local draft or direct input for an enrolled pane; its footer shows the current mode. Preference changes persist atomically. A server restart invalidates the boot enrollment and requires explicit renewal after the process identity is checked.
+
+Send retains the draft and uses the existing paste transport without an extra Enter. Multiline and retry confirmations remain mandatory. Delivery is not a server acceptance acknowledgement. To execute submitted single-line text, close the draft and use remote Enter. New output remains remote.

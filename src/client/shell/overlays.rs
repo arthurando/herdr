@@ -101,6 +101,7 @@ pub(crate) fn render_global_menu(
     menu: &ClientGlobalMenuOverlay,
     snapshot: &ClientShellSnapshot,
     palette: &Palette,
+    local_draft_default: bool,
 ) -> Option<OverlayRender> {
     let items = super::super::global_menu::global_menu_items(snapshot);
     let screen = buffer.area;
@@ -126,6 +127,17 @@ pub(crate) fn render_global_menu(
     let y = launcher.y.saturating_sub(height).max(screen.y);
     let rect = Rect::new(x, y, width, height);
     let inner = panel(buffer, rect, palette.accent, palette.panel_bg)?;
+    buffer.set_stringn(
+        rect.x + 1,
+        rect.bottom() - 1,
+        if local_draft_default {
+            " Local draft input "
+        } else {
+            " Direct terminal input "
+        },
+        usize::from(rect.width.saturating_sub(2)),
+        Style::default().fg(palette.accent).bg(palette.panel_bg),
+    );
     let mut rows = Vec::new();
     for (index, (label, action)) in items.iter().enumerate() {
         let row_y = inner.y.saturating_add(index as u16);
