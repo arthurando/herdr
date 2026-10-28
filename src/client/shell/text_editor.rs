@@ -8,6 +8,7 @@ pub(super) struct TextEditor {
     cursor: usize,
     replace_on_type: bool,
     killed: String,
+    multiline: bool,
 }
 
 impl std::ops::Deref for TextEditor {
@@ -35,6 +36,54 @@ impl TextEditor {
         editor.insert(text);
         editor.replace_on_type = replace_on_type;
         editor
+    }
+
+    pub fn multiline() -> Self {
+        Self {
+            multiline: true,
+            ..Self::default()
+        }
+    }
+
+    fn line_start(&self) -> usize {
+        self.text[..self.cursor]
+            .rfind('\n')
+            .map(|i| i + 1)
+            .unwrap_or(0)
+    }
+
+    fn line_end(&self) -> usize {
+        self.cursor
+            + self.text[self.cursor..]
+                .find('\n')
+                .unwrap_or(self.text.len() - self.cursor)
+    }
+
+    fn vertical(&self, down: bool) -> usize {
+        let start = self.line_start();
+        let column = self.text[start..self.cursor].graphemes(true).count();
+        let target = if down {
+            let end = self.line_end();
+            if end == self.text.len() {
+                return self.cursor;
+            }
+            end + 1
+        } else {
+            if start == 0 {
+                return self.cursor;
+            }
+            self.text[..start - 1]
+                .rfind('\n')
+                .map(|i| i + 1)
+                .unwrap_or(0)
+        };
+        let line = self.text[target..].split('\n').next().unwrap_or("");
+        target
+            + line
+                .grapheme_indices(true)
+                .nth(column)
+                .map(|(i, _)| i)
+                .unwrap_or(line.len())
     }
 
     pub fn as_str(&self) -> &str {
@@ -75,9 +124,10 @@ impl TextEditor {
                     if chars.peek() == Some(&'\n') {
                         chars.next();
                     }
-                    normalized.push(' ');
+                    normalized.push(if self.multiline { '\n' } else { ' ' });
                 }
-                '\n' | '\t' => normalized.push(' '),
+                '\n' => normalized.push(if self.multiline { '\n' } else { ' ' }),
+                '\t' => normalized.push(' '),
                 ch if !ch.is_control() => normalized.push(ch),
                 _ => {}
             }
@@ -164,6 +214,9 @@ impl TextEditor {
         if key.kind == KeyEventKind::Release {
             return None;
         }
+        if self.multiline && key.code == KeyCode::Enter && key.modifiers.is_empty() {
+            return Some(self.insert("\n"));
+        }
         if matches!(key.code, KeyCode::Enter | KeyCode::Esc) {
             return None;
         }
@@ -186,9 +239,15 @@ impl TextEditor {
                 KeyCode::Char('b') if ctrl => Some(self.previous()),
                 KeyCode::Right if plain => Some(self.next()),
                 KeyCode::Char('f') if ctrl => Some(self.next()),
-                KeyCode::Home if plain => Some(0),
+                KeyCode::Up if plain && self.multiline => Some(self.vertical(false)),
+                KeyCode::Down if plain && self.multiline => Some(self.vertical(true)),
+                KeyCode::Home if plain => Some(if self.multiline { self.line_start() } else { 0 }),
                 KeyCode::Char('a') if ctrl => Some(0),
-                KeyCode::End if plain => Some(self.text.len()),
+                KeyCode::End if plain => Some(if self.multiline {
+                    self.line_end()
+                } else {
+                    self.text.len()
+                }),
                 KeyCode::Char('e') if ctrl => Some(self.text.len()),
                 KeyCode::Char('b') if alt => Some(self.word_boundary(true)),
                 KeyCode::Char('f') if alt => Some(self.word_boundary(false)),
@@ -274,6 +333,40 @@ pub(super) fn render(
     if area.is_empty() {
         return None;
     }
+    if editor.multiline {
+        let active = editor.text[..editor.cursor]
+            .bytes()
+            .filter(|b| *b == b'\n')
+            .count();
+        let first = active.saturating_sub(usize::from(area.height) - 1);
+        let mut offset = 0;
+        let mut cursor = None;
+        for (index, line) in editor.text.split('\n').enumerate() {
+            if index >= first && index < first + usize::from(area.height) {
+                let row_editor = TextEditor {
+                    text: line.to_owned(),
+                    cursor: if index == active {
+                        editor.cursor - offset
+                    } else {
+                        0
+                    },
+                    ..TextEditor::default()
+                };
+                let row = ratatui::layout::Rect::new(
+                    area.x,
+                    area.y + (index - first) as u16,
+                    area.width,
+                    1,
+                );
+                let row_cursor = render(buffer, row, &row_editor, style);
+                if index == active {
+                    cursor = row_cursor;
+                }
+            }
+            offset += line.len() + 1;
+        }
+        return cursor;
+    }
     let (text, cursor) = editor.viewport(area.width);
     for x in area.x..area.right() {
         buffer[(x, area.y)].set_symbol(" ").set_style(style);
@@ -303,6 +396,33 @@ mod tests {
                     .any(|(i, _)| i == editor.cursor)
         );
         result
+    }
+
+    #[test]
+    fn multiline_mode_preserves_lines_and_render_tracks_cursor() {
+        use ratatui::{buffer::Buffer, layout::Rect, style::Style};
+        let mut editor = TextEditor::multiline();
+        editor.insert("one\r\ntwo\rthree");
+        assert_eq!(editor.as_str(), "one\ntwo\nthree");
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 12, 2));
+        let before = editor.clone();
+        let cursor = render(
+            &mut buffer,
+            Rect::new(0, 0, 12, 2),
+            &editor,
+            Style::default(),
+        )
+        .unwrap();
+        assert_eq!((cursor.x, cursor.y), (5, 1));
+        assert_eq!(buffer[(0, 0)].symbol(), "t");
+        assert_eq!(editor, before);
+        key(&mut editor, KeyCode::Home, KeyModifiers::NONE);
+        key(&mut editor, KeyCode::Backspace, KeyModifiers::NONE);
+        assert_eq!(editor.as_str(), "one\ntwothree");
+        editor.clear();
+        editor.insert("a\nb");
+        assert_eq!(editor.as_str(), "a\nb");
+        assert_eq!(TextEditor::from("a\nb").as_str(), "a b");
     }
 
     #[test]
