@@ -110,9 +110,11 @@ pub enum AgentSidebarToken {
     StateText,
     Machine,
     Workspace,
+    SessionTitle,
     Tab,
     Pane,
     Agent,
+    ModelOrAgent,
     TerminalTitle,
     TerminalTitleStripped,
     Custom(String),
@@ -274,9 +276,11 @@ fn agent_token_name(token: &AgentSidebarToken) -> String {
         AgentSidebarToken::StateText => "state_text".into(),
         AgentSidebarToken::Machine => "machine".into(),
         AgentSidebarToken::Workspace => "workspace".into(),
+        AgentSidebarToken::SessionTitle => "session_title".into(),
         AgentSidebarToken::Tab => "tab".into(),
         AgentSidebarToken::Pane => "pane".into(),
         AgentSidebarToken::Agent => "agent".into(),
+        AgentSidebarToken::ModelOrAgent => "model_or_agent".into(),
         AgentSidebarToken::TerminalTitle => "terminal_title".into(),
         AgentSidebarToken::TerminalTitleStripped => "terminal_title_stripped".into(),
         AgentSidebarToken::Custom(name) => format!("${name}"),
@@ -333,9 +337,11 @@ impl<'de> Deserialize<'de> for AgentSidebarToken {
                 ("state_text", Self::StateText),
                 ("machine", Self::Machine),
                 ("workspace", Self::Workspace),
+                ("session_title", Self::SessionTitle),
                 ("tab", Self::Tab),
                 ("pane", Self::Pane),
                 ("agent", Self::Agent),
+                ("model_or_agent", Self::ModelOrAgent),
                 ("terminal_title", Self::TerminalTitle),
                 ("terminal_title_stripped", Self::TerminalTitleStripped),
             ],
@@ -441,13 +447,8 @@ impl Default for AgentsSidebarConfig {
     fn default() -> Self {
         Self {
             rows: vec![
-                vec![
-                    AgentSidebarToken::StateIcon,
-                    AgentSidebarToken::Machine,
-                    AgentSidebarToken::Workspace,
-                    AgentSidebarToken::Tab,
-                ],
-                vec![AgentSidebarToken::Agent],
+                vec![AgentSidebarToken::SessionTitle],
+                vec![AgentSidebarToken::ModelOrAgent],
             ],
             rows_by_agent: BTreeMap::new(),
             row_gap: DEFAULT_SIDEBAR_ROW_GAP,
@@ -492,13 +493,8 @@ mod tests {
         assert_eq!(
             config.agents.rows,
             vec![
-                vec![
-                    AgentSidebarToken::StateIcon,
-                    AgentSidebarToken::Machine,
-                    AgentSidebarToken::Workspace,
-                    AgentSidebarToken::Tab,
-                ],
-                vec![AgentSidebarToken::Agent],
+                vec![AgentSidebarToken::SessionTitle],
+                vec![AgentSidebarToken::ModelOrAgent],
             ]
         );
         assert!(config.agents.rows_by_agent.is_empty());

@@ -2907,6 +2907,36 @@ fn terminal_sessions_without_agent_detection_remain_visible_across_machines() {
     assert_eq!(targets[0].endpoint_id, local);
 }
 #[test]
+fn default_session_panel_renders_title_then_model_or_agent() {
+    let (mut state, remote) = state_with_remote();
+    let mut projected = snapshot();
+    projected.workspaces[0].label = "Work".into();
+    let mut detected = agent("ignored", AgentStatus::Idle, 1);
+    detected.agent = Some("claude".into());
+    detected.title = Some("Pane title".into());
+    detected.terminal_title_stripped = Some("Session title".into());
+    detected.tokens = vec![("model".into(), "Opus 5.5".into())];
+    projected.agents = vec![detected];
+    state.set_endpoint_snapshot(&remote, Box::new(projected));
+    let frame = state.compose(100, 40).unwrap();
+    let lines = frame
+        .cells
+        .chunks(frame.width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>();
+    let title = lines
+        .iter()
+        .position(|line| line.contains("Session title"))
+        .expect("session title");
+    assert!(lines[title + 1].contains("Opus 5.5"), "frame: {lines:?}");
+    assert!(!lines[title].contains("Build"), "frame: {lines:?}");
+}
+
+#[test]
 fn terminal_sessions_render_machine_labels_and_route_click_to_remote() {
     let (mut state, remote) = state_with_remote();
     let frame = state.compose(100, 40).unwrap();

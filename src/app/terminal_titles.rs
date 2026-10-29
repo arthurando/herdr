@@ -18,7 +18,8 @@ impl App {
             .flatten()
             .any(|token| match token.parts().0 {
                 crate::config::AgentSidebarToken::TerminalTitle => changes.raw_changed,
-                crate::config::AgentSidebarToken::TerminalTitleStripped => changes.stripped_changed,
+                crate::config::AgentSidebarToken::TerminalTitleStripped
+                | crate::config::AgentSidebarToken::SessionTitle => changes.stripped_changed,
                 _ => false,
             })
     }
@@ -226,6 +227,13 @@ mod tests {
             ..TerminalTitleChanges::default()
         }));
 
+        app.state.sidebar_agents.rows_by_agent.clear();
+        app.state.sidebar_agents.rows = vec![vec![crate::config::AgentSidebarToken::SessionTitle]];
+        assert!(!app.terminal_title_sidebar_changed(&spinner_only));
+        assert!(app.terminal_title_sidebar_changed(&TerminalTitleChanges {
+            stripped_changed: true,
+            ..TerminalTitleChanges::default()
+        }));
         app.state.sidebar_agents.rows_by_agent.insert(
             "claude".into(),
             vec![vec![crate::config::AgentSidebarToken::TerminalTitle]],

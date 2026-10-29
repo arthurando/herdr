@@ -88,6 +88,14 @@ pub(crate) fn agent_rows(
                         AgentSidebarToken::Workspace => {
                             Some(ResolvedTokenKind::Workspace(context.workspace.to_string()))
                         }
+                        AgentSidebarToken::SessionTitle => Some(ResolvedTokenKind::Workspace(
+                            context
+                                .terminal_title_stripped
+                                .filter(|value| !value.trim().is_empty())
+                                .or_else(|| context.pane.filter(|value| !value.trim().is_empty()))
+                                .unwrap_or(context.workspace)
+                                .to_string(),
+                        )),
                         AgentSidebarToken::Tab => context
                             .tab
                             .map(|value| ResolvedTokenKind::Tab(value.to_string())),
@@ -96,6 +104,14 @@ pub(crate) fn agent_rows(
                             .map(|value| ResolvedTokenKind::Pane(value.to_string())),
                         AgentSidebarToken::Agent => context
                             .agent_label
+                            .map(|value| ResolvedTokenKind::Agent(value.to_string())),
+                        AgentSidebarToken::ModelOrAgent => context
+                            .tokens
+                            .get("model")
+                            .map(String::as_str)
+                            .filter(|value| !value.trim().is_empty())
+                            .or_else(|| context.canonical_agent.map(crate::detect::agent_label))
+                            .or(context.agent_label)
                             .map(|value| ResolvedTokenKind::Agent(value.to_string())),
                         AgentSidebarToken::TerminalTitle => context
                             .terminal_title
@@ -228,6 +244,40 @@ mod tests {
             canonical_agent: entry.canonical_agent,
             tokens: &entry.tokens,
         }
+    }
+
+    #[test]
+    fn default_session_rows_prefer_model_and_fall_back_to_agent() {
+        let config = AgentsSidebarConfig::default();
+        let mut entry = entry();
+        entry.workspace = "Workspace".into();
+        entry.pane = Some("Pane".into());
+        entry.terminal_title_stripped = Some("SinSang".into());
+        entry.canonical_agent = Some(crate::detect::Agent::Codex);
+        entry.agent_label = Some("codex".into());
+        entry.tokens.insert("model".into(), "GPT 6.1 Terra".into());
+        let rows = agent_rows(&config, context(&entry), "idle");
+        assert_eq!(
+            rows[0][0].kind,
+            ResolvedTokenKind::Workspace("SinSang".into())
+        );
+        assert_eq!(
+            rows[1][0].kind,
+            ResolvedTokenKind::Agent("GPT 6.1 Terra".into())
+        );
+        entry.tokens.insert("model".into(), "  ".into());
+        let rows = agent_rows(&config, context(&entry), "idle");
+        assert_eq!(rows[1][0].kind, ResolvedTokenKind::Agent("codex".into()));
+        entry.canonical_agent = None;
+        entry.terminal_title_stripped = None;
+        entry.pane = None;
+        entry.agent_label = Some("terminal".into());
+        let rows = agent_rows(&config, context(&entry), "unknown");
+        assert_eq!(
+            rows[0][0].kind,
+            ResolvedTokenKind::Workspace("Workspace".into())
+        );
+        assert_eq!(rows[1][0].kind, ResolvedTokenKind::Agent("terminal".into()));
     }
 
     #[test]
