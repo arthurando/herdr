@@ -88,14 +88,9 @@ pub(crate) fn agent_rows(
                         AgentSidebarToken::Workspace => {
                             Some(ResolvedTokenKind::Workspace(context.workspace.to_string()))
                         }
-                        AgentSidebarToken::SessionTitle => Some(ResolvedTokenKind::Workspace(
-                            context
-                                .terminal_title_stripped
-                                .filter(|value| !value.trim().is_empty())
-                                .or_else(|| context.pane.filter(|value| !value.trim().is_empty()))
-                                .unwrap_or(context.workspace)
-                                .to_string(),
-                        )),
+                        AgentSidebarToken::SessionTitle => {
+                            Some(ResolvedTokenKind::Workspace(context.workspace.to_string()))
+                        }
                         AgentSidebarToken::Tab => context
                             .tab
                             .map(|value| ResolvedTokenKind::Tab(value.to_string())),
@@ -260,7 +255,7 @@ mod tests {
         assert_eq!(rows[0][0].kind, ResolvedTokenKind::StateIcon);
         assert_eq!(
             rows[0][1].kind,
-            ResolvedTokenKind::Workspace("SinSang".into())
+            ResolvedTokenKind::Workspace("Workspace".into())
         );
         assert_eq!(rows.len(), 1);
         entry.tokens.insert("model".into(), "  ".into());

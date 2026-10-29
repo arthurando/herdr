@@ -7,6 +7,9 @@ repository; this is a user-owned fork.
 
 ## Behavior and ownership
 
+- The default sessions panel uses the machine panel workspace name for each pane.
+  Terminal titles do not replace that name; session rows retain their colours.
+
 - `src/client/shell/local_history.rs` owns bounded, immutable text snapshots,
   local line selection and local scroll. It never concatenates screen redraws.
 - `local_compose.rs` and `local_compose_actions.rs` own explicit local drafts and
