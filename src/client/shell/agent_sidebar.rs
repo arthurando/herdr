@@ -349,7 +349,7 @@ pub(super) fn render_agent_row(
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
-            .fg(palette.subtext0)
+            .fg(palette.text)
             .add_modifier(Modifier::BOLD)
     };
     let status_style = Style::default().fg(status_color(row.status, palette));
