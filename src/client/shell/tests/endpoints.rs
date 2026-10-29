@@ -2907,7 +2907,7 @@ fn terminal_sessions_without_agent_detection_remain_visible_across_machines() {
     assert_eq!(targets[0].endpoint_id, local);
 }
 #[test]
-fn default_session_panel_renders_title_then_model_or_agent() {
+fn default_session_panel_renders_title_only() {
     let (mut state, remote) = state_with_remote();
     let mut projected = snapshot();
     projected.workspaces[0].label = "Work".into();
@@ -2933,7 +2933,10 @@ fn default_session_panel_renders_title_then_model_or_agent() {
         .position(|line| line.contains("Session title"))
         .expect("session title");
     assert!(lines[title].contains("○ Session title"), "frame: {lines:?}");
-    assert!(lines[title + 1].contains("Opus 5.5"), "frame: {lines:?}");
+    assert!(
+        !lines.iter().any(|line| line.contains("Opus 5.5")),
+        "frame: {lines:?}"
+    );
     assert!(!lines[title].contains("Build"), "frame: {lines:?}");
 }
 
@@ -2952,7 +2955,7 @@ fn terminal_sessions_render_machine_labels_and_route_click_to_remote() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(text.contains("○ remote-workspace"), "{text}");
-    assert!(text.contains("terminal"), "{text}");
+    assert!(!text.contains("terminal"), "{text}");
     let (rect, _, pane) = state
         .hits
         .endpoint_agents

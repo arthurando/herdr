@@ -199,7 +199,7 @@ fn lookup_agent(name: &str) -> Option<Agent> {
     let name = path_basename(name);
     match name {
         "pi" => Some(Agent::Pi),
-        "claude" | "claude-code" => Some(Agent::Claude),
+        "claude" | "claude-code" | "claude-bin" => Some(Agent::Claude),
         "codex" => Some(Agent::Codex),
         "gemini" => Some(Agent::Gemini),
         "cursor" | "cursor-agent" => Some(Agent::Cursor),
@@ -972,6 +972,7 @@ mod tests {
     fn identify_known_agents() {
         assert_eq!(identify_agent("pi"), Some(Agent::Pi));
         assert_eq!(identify_agent("claude"), Some(Agent::Claude));
+        assert_eq!(identify_agent("claude-bin"), Some(Agent::Claude));
         assert_eq!(identify_agent("claude-code"), Some(Agent::Claude));
         assert_eq!(identify_agent("codex"), Some(Agent::Codex));
         assert_eq!(identify_agent("gemini"), Some(Agent::Gemini));

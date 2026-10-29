@@ -155,5 +155,10 @@ fn agent_rows(
             agent,
         })
     })
+    .enumerate()
+    .map(|(index, mut row)| {
+        row.agent.color_index = index;
+        row
+    })
     .collect()
 }

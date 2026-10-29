@@ -14,6 +14,7 @@ pub(super) struct AgentRow {
     pub(super) pane_id: String,
     pub(super) status: crate::api::schema::AgentStatus,
     pub(super) focused: bool,
+    pub(super) color_index: usize,
     pub(super) rows: Vec<Vec<crate::ui::ResolvedToken>>,
 }
 
@@ -246,6 +247,11 @@ pub(super) fn agent_rows(
     ordered_agent_pane_ids(snapshot, config.agent_panel_sort)
         .into_iter()
         .filter_map(|pane_id| agent_row(snapshot, &pane_id, config, machine))
+        .enumerate()
+        .map(|(index, mut row)| {
+            row.color_index = index;
+            row
+        })
         .collect()
 }
 
@@ -327,6 +333,7 @@ pub(super) fn agent_row_from(
         pane_id: agent.pane_id.clone(),
         status: agent.agent_status,
         focused: agent.focused,
+        color_index: 0,
         rows,
     })
 }
@@ -343,15 +350,29 @@ pub(super) fn render_agent_row(
     } else {
         Style::default()
     };
-    let name_style = if row.focused {
-        Style::default()
-            .fg(palette.text)
-            .add_modifier(Modifier::BOLD)
+    let colors = if row.focused {
+        [
+            (145, 25, 40),
+            (137, 65, 0),
+            (102, 83, 0),
+            (0, 104, 64),
+            (0, 78, 145),
+            (93, 45, 139),
+        ]
     } else {
-        Style::default()
-            .fg(palette.text)
-            .add_modifier(Modifier::BOLD)
+        [
+            (255, 116, 126),
+            (255, 175, 90),
+            (244, 216, 100),
+            (120, 220, 158),
+            (120, 190, 255),
+            (207, 157, 255),
+        ]
     };
+    let (r, g, b) = colors[row.color_index % colors.len()];
+    let name_style = Style::default()
+        .fg(ratatui::style::Color::Rgb(r, g, b))
+        .add_modifier(Modifier::BOLD);
     let status_style = Style::default().fg(status_color(row.status, palette));
     let secondary = Style::default().fg(palette.overlay0);
     let icon = (

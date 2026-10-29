@@ -247,7 +247,7 @@ mod tests {
     }
 
     #[test]
-    fn default_session_rows_prefer_model_and_fall_back_to_agent() {
+    fn default_session_rows_show_title_only() {
         let config = AgentsSidebarConfig::default();
         let mut entry = entry();
         entry.workspace = "Workspace".into();
@@ -262,13 +262,10 @@ mod tests {
             rows[0][1].kind,
             ResolvedTokenKind::Workspace("SinSang".into())
         );
-        assert_eq!(
-            rows[1][0].kind,
-            ResolvedTokenKind::Agent("GPT 6.1 Terra".into())
-        );
+        assert_eq!(rows.len(), 1);
         entry.tokens.insert("model".into(), "  ".into());
         let rows = agent_rows(&config, context(&entry), "idle");
-        assert_eq!(rows[1][0].kind, ResolvedTokenKind::Agent("codex".into()));
+        assert_eq!(rows.len(), 1);
         entry.canonical_agent = None;
         entry.terminal_title_stripped = None;
         entry.pane = None;
@@ -278,7 +275,7 @@ mod tests {
             rows[0][1].kind,
             ResolvedTokenKind::Workspace("Workspace".into())
         );
-        assert_eq!(rows[1][0].kind, ResolvedTokenKind::Agent("terminal".into()));
+        assert_eq!(rows.len(), 1);
     }
 
     #[test]
