@@ -2951,7 +2951,7 @@ fn terminal_sessions_render_machine_labels_and_route_click_to_remote() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("remote-workspace"), "{text}");
+    assert!(text.contains("○ remote-workspace"), "{text}");
     assert!(text.contains("terminal"), "{text}");
     let (rect, _, pane) = state
         .hits

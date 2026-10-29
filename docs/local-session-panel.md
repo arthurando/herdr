@@ -2,7 +2,7 @@
 
 The lower aggregate panel includes terminal panes even when the server cannot
 identify their agent. Existing detected agents retain their names and status.
-Undetected panes use a neutral terminal label and unknown status; detection
+Undetected panes use a neutral terminal label and a gray hollow status bubble; detection
 failure does not remove a session from navigation.
 
 Rows use machine plus pane identity. Equal pane IDs on different machines remain
