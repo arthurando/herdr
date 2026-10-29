@@ -15,8 +15,9 @@ This explains why the previous agent-only panel omitted Livestream and SinSang.
 This change does not claim that remote agent detection itself is repaired.
 
 Implementation: src/client/shell/aggregate_navigation.rs provides shared rows;
-endpoint_agents.rs renders them through agent_sidebar.rs. No wire change or
-remote server restart is required.
+endpoint_agents.rs renders them through agent_sidebar.rs. The panel change needs
+no wire change or remote server restart. The Claude process alias requires the
+updated server to be activated on Sid.
 
 By default, each row shows one line with a status icon and session title. Titles
 use alternating rainbow colors. Custom sidebar layouts remain supported.
