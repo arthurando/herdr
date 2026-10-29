@@ -2932,6 +2932,7 @@ fn default_session_panel_renders_title_then_model_or_agent() {
         .iter()
         .position(|line| line.contains("Session title"))
         .expect("session title");
+    assert!(lines[title].contains("○ Session title"), "frame: {lines:?}");
     assert!(lines[title + 1].contains("Opus 5.5"), "frame: {lines:?}");
     assert!(!lines[title].contains("Build"), "frame: {lines:?}");
 }

@@ -18,7 +18,7 @@ Implementation: src/client/shell/aggregate_navigation.rs provides shared rows;
 endpoint_agents.rs renders them through agent_sidebar.rs. No wire change or
 remote server restart is required.
 
-By default, each row shows the stripped terminal title on the first line. If
+By default, each row shows the status icon and stripped terminal title on the first line. If
 absent, it shows the pane title, then the workspace name. The second line shows
 model metadata. If no model is reported, the detected agent name is
 shown. An undetected pane shows `terminal`; its agent identity is unknown.

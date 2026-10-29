@@ -257,8 +257,9 @@ mod tests {
         entry.agent_label = Some("codex".into());
         entry.tokens.insert("model".into(), "GPT 6.1 Terra".into());
         let rows = agent_rows(&config, context(&entry), "idle");
+        assert_eq!(rows[0][0].kind, ResolvedTokenKind::StateIcon);
         assert_eq!(
-            rows[0][0].kind,
+            rows[0][1].kind,
             ResolvedTokenKind::Workspace("SinSang".into())
         );
         assert_eq!(
@@ -274,7 +275,7 @@ mod tests {
         entry.agent_label = Some("terminal".into());
         let rows = agent_rows(&config, context(&entry), "unknown");
         assert_eq!(
-            rows[0][0].kind,
+            rows[0][1].kind,
             ResolvedTokenKind::Workspace("Workspace".into())
         );
         assert_eq!(rows[1][0].kind, ResolvedTokenKind::Agent("terminal".into()));
