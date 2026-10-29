@@ -315,7 +315,10 @@ pub(super) fn agent_row_from(
         &config.agents,
         crate::ui::AgentTokenContext {
             machine,
-            workspace: &workspace.label,
+            workspace: super::sidebar::workspace_display_label(
+                workspace,
+                super::sidebar::workspace_is_grouped_child(snapshot, workspace),
+            ),
             tab: tab_label,
             pane: agent
                 .title

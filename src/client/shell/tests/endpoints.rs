@@ -2933,7 +2933,10 @@ fn default_session_panel_renders_title_only() {
         .position(|line| line.contains("Work") && line.contains("\u{25cb}"))
         .expect("workspace session name");
     assert!(lines[title].contains("\u{25cb} Work"), "frame: {lines:?}");
-    assert!(!lines.iter().any(|line| line.contains("Session title")), "frame: {lines:?}");
+    assert!(
+        !lines.iter().any(|line| line.contains("Session title")),
+        "frame: {lines:?}"
+    );
     assert!(
         !lines.iter().any(|line| line.contains("Opus 5.5")),
         "frame: {lines:?}"

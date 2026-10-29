@@ -660,21 +660,43 @@ pub(in crate::client::shell) fn displayed_workspace_status(
         .unwrap_or(workspace.agent_status)
 }
 
+pub(in crate::client::shell) fn workspace_display_label(
+    workspace: &ClientShellWorkspace,
+    indented: bool,
+) -> &str {
+    if indented && !workspace.custom_label {
+        workspace
+            .branch
+            .as_deref()
+            .map(|branch| branch.strip_prefix("worktree/").unwrap_or(branch))
+            .unwrap_or(&workspace.label)
+    } else {
+        &workspace.label
+    }
+}
+
+pub(in crate::client::shell) fn workspace_is_grouped_child(
+    snapshot: &ClientShellSnapshot,
+    workspace: &ClientShellWorkspace,
+) -> bool {
+    workspace.worktree.as_ref().is_some_and(|worktree| {
+        worktree.is_linked_worktree
+            && snapshot.workspaces.iter().any(|candidate| {
+                candidate
+                    .worktree
+                    .as_ref()
+                    .is_some_and(|other| other.key == worktree.key && !other.is_linked_worktree)
+            })
+    })
+}
+
 pub(in crate::client::shell) fn workspace_rows(
     workspace: &ClientShellWorkspace,
     status: crate::api::schema::AgentStatus,
     indented: bool,
     config: &SpacesSidebarConfig,
 ) -> Vec<Vec<crate::ui::ResolvedToken>> {
-    let label = if indented && !workspace.custom_label {
-        workspace
-            .branch
-            .as_deref()
-            .and_then(|branch| branch.strip_prefix("worktree/").or(Some(branch)))
-            .unwrap_or(&workspace.label)
-    } else {
-        &workspace.label
-    };
+    let label = workspace_display_label(workspace, indented);
     let token_values = workspace.tokens.iter().cloned().collect::<HashMap<_, _>>();
     crate::ui::sidebar_space_rows(
         config,
