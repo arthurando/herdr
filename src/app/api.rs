@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 mod agent_view;
 mod agents;
+mod archive;
 mod env;
 mod integrations;
 mod layouts;
@@ -1081,6 +1082,10 @@ impl App {
             }
             Method::WorkspaceClose(target) => {
                 return self.handle_workspace_close(request.id, target);
+            }
+            Method::WorkspaceArchiveList(_) => return self.handle_archive_list(request.id),
+            Method::WorkspaceArchiveResume(params) => {
+                return self.handle_archive_resume(request.id, params)
             }
             Method::WorktreeList(_) | Method::WorktreeOpen(_) => {
                 return responses::encode_error(

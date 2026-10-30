@@ -246,6 +246,9 @@ impl App {
                     "closing this tab would close a worktree group",
                 );
             }
+            if let Err(err) = self.archive_workspaces(&self.state.workspace_close_indices(ws_idx)) {
+                return encode_error(id, "archive_write_failed", err.to_string());
+            }
             let workspace = self.workspace_info(ws_idx);
             self.state.selected = ws_idx;
             self.state.close_selected_workspace();

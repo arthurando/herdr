@@ -1985,6 +1985,9 @@ impl App {
                     "closing this pane would close a worktree group",
                 ));
             }
+            if let Err(err) = self.archive_workspaces(&self.state.workspace_close_indices(ws_idx)) {
+                return Err(encode_error(id, "archive_write_failed", err.to_string()));
+            }
         }
         let workspace_snapshot = self.workspace_info(ws_idx);
         let terminal_id = self.state.terminal_id_for_pane(ws_idx, pane_id);
