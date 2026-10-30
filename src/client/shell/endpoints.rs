@@ -239,6 +239,9 @@ impl ClientShellState {
         let switching_endpoint = endpoint_id != &self.active_endpoint_id;
         let agent_scroll = self.agent_scroll;
         if switching_endpoint {
+            self.archive = super::archive::ArchivePanel::default();
+            self.hits.archive_body = Rect::default();
+            self.hits.archive_rows.clear();
             self.active_endpoint_id = endpoint_id.clone();
             self.pane_surface = None;
             self.pending_pane_surface = None;

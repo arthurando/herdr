@@ -313,13 +313,21 @@ pub(super) fn render_expanded(
             }
         }
     }
+    let archive_height = if state.archive.is_open() {
+        workspace_area
+            .height
+            .saturating_sub(WORKSPACE_HEADER_ROWS + 2)
+            .min(8)
+    } else {
+        0
+    };
     let body = Rect::new(
         workspace_area.x,
         workspace_area.y.saturating_add(WORKSPACE_HEADER_ROWS),
         workspace_area.width,
         workspace_area
             .height
-            .saturating_sub(WORKSPACE_HEADER_ROWS + 1),
+            .saturating_sub(WORKSPACE_HEADER_ROWS + 1 + archive_height),
     );
     hits.workspace_body = body;
     let row_heights = rows
@@ -603,15 +611,25 @@ pub(super) fn render_expanded(
     }
 
     let footer_y = workspace_area.bottom().saturating_sub(1);
+    if archive_height > 0 {
+        let archive_area = Rect::new(
+            workspace_area.x,
+            footer_y.saturating_sub(archive_height),
+            workspace_area.width,
+            archive_height,
+        );
+        super::archive::render(buffer, archive_area, state.archive, palette, hits);
+    }
     if config.mouse_capture {
-        let label = format!(" [+] New · {}", active_endpoint_label(state));
+        let label = " [+] New";
         let attention = active_snapshot.is_some_and(super::global_menu::global_menu_attention);
         let width = if attention { 8 } else { 6 }.min(workspace_area.width);
-        let new_width = workspace_area.width.saturating_sub(width);
+        let archive_width = 8.min(workspace_area.width.saturating_sub(width));
+        let new_width = workspace_area.width.saturating_sub(width + archive_width);
         hits.new_workspace = Rect::new(
             workspace_area.x,
             footer_y,
-            display_width(&label).min(new_width),
+            display_width(label).min(new_width),
             u16::from(workspace_area.height > 0),
         );
         put_text(
@@ -619,8 +637,26 @@ pub(super) fn render_expanded(
             workspace_area.x,
             footer_y,
             new_width,
-            &label,
+            label,
             Style::default().fg(palette.overlay0),
+        );
+        hits.archive_toggle = Rect::new(
+            workspace_area.x.saturating_add(new_width),
+            footer_y,
+            archive_width,
+            1,
+        );
+        put_text(
+            buffer,
+            hits.archive_toggle.x,
+            footer_y,
+            archive_width,
+            " Archive",
+            Style::default().fg(if state.archive.is_open() {
+                palette.accent
+            } else {
+                palette.overlay0
+            }),
         );
         hits.global_launcher = Rect::new(
             workspace_area.right().saturating_sub(width),
@@ -666,14 +702,6 @@ pub(super) fn render_expanded(
         "«",
         Style::default().fg(palette.overlay0),
     );
-}
-
-fn active_endpoint_label<'a>(state: &'a ShellRenderState<'_>) -> &'a str {
-    state
-        .endpoints
-        .iter()
-        .find(|endpoint| &endpoint.endpoint_id == state.active_endpoint_id)
-        .map_or("Local", |endpoint| endpoint.label.as_str())
 }
 
 fn render_endpoint_row(
