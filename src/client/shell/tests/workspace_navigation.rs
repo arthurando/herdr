@@ -138,10 +138,17 @@ fn local_navigation_highlight_stays_visible_with_terminal_theme() {
                 state.config.palette.active_row_bg
             );
             let cancelled = workspace_rect(&state, &ClientEndpointId::Local, "ws_3");
-            assert_eq!(
-                buffer[(cancelled.x, cancelled.y)].bg,
-                state.config.palette.sidebar_bg
-            );
+            if compact {
+                assert_eq!(
+                    buffer[(cancelled.x, cancelled.y)].bg,
+                    state.config.palette.sidebar_bg
+                );
+            } else {
+                assert_ne!(
+                    buffer[(cancelled.x, cancelled.y)].bg,
+                    state.config.palette.active_row_bg
+                );
+            }
         }
     }
 }

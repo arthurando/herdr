@@ -760,7 +760,24 @@ pub(in crate::client::shell) fn render_workspace_rows(
         let highlighted = focused || dragged;
         let workspace_style = Style::default()
             .fg(if rainbow_index.is_some() {
-                ratatui::style::Color::White
+                let background = if selected {
+                    workspace_selection_background(palette)
+                } else if highlighted {
+                    workspace_active_background(palette, navigating)
+                } else {
+                    ratatui::style::Color::Black
+                };
+                match background {
+                    ratatui::style::Color::Rgb(r, g, b)
+                        if u16::from(r) + u16::from(g) + u16::from(b) > 540 =>
+                    {
+                        ratatui::style::Color::Black
+                    }
+                    ratatui::style::Color::White | ratatui::style::Color::Gray => {
+                        ratatui::style::Color::Black
+                    }
+                    _ => ratatui::style::Color::White,
+                }
             } else if highlighted {
                 palette.text
             } else {
@@ -804,7 +821,7 @@ pub(in crate::client::shell) fn render_workspace_rows(
     } else {
         None
     };
-    if let Some(background) = background.filter(|_| rainbow_index.is_none()) {
+    if let Some(background) = background {
         for y in area.y..area.bottom() {
             for x in area.x..area.right() {
                 buffer[(x, y)].set_bg(background);

@@ -118,7 +118,7 @@ fn unified_sidebar_keeps_multiple_panes_and_footer_controls() {
         .find(|cell| cell.symbol() == "N")
         .unwrap();
     assert!(name_cell.modifier.contains(Modifier::BOLD));
-    assert!(matches!(name_cell.fg, ratatui::style::Color::Rgb(..)));
+    assert_eq!(name_cell.fg, ratatui::style::Color::White);
     assert_eq!(
         buffer[(machine.x, machine.y)].bg,
         state.config.palette.sidebar_bg

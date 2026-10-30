@@ -629,15 +629,21 @@ pub(super) fn render_expanded(
                     (69, 46, 91),
                 ];
                 let (r, g, b) = colours[row_index % colours.len()];
-                let lift = if selected || (endpoint_active && workspace.focused) {
-                    22
-                } else {
-                    0
-                };
-                let background = if dragged {
+                let background = if selected {
+                    if palette.selection_bg == Color::Reset {
+                        palette.active_row_bg
+                    } else {
+                        palette.selection_bg
+                    }
+                } else if dragged {
                     palette.surface1
+                } else if endpoint_active && workspace.focused {
+                    super::sidebar::workspace_active_background(
+                        palette,
+                        state.selected_workspace_id.is_some(),
+                    )
                 } else {
-                    Color::Rgb(r + lift, g + lift, b + lift)
+                    Color::Rgb(r, g, b)
                 };
                 buffer.set_style(rect, Style::default().bg(background));
                 if let Some(agent) = single_agent {
