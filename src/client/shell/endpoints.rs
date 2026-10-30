@@ -217,7 +217,11 @@ impl ClientShellState {
         let pending_agent_reveal = self
             .pending_agent_reveal
             .take_if(|(target_endpoint, _)| target_endpoint == endpoint_id);
-        let agent_body_height = self.hits.agent_body.height;
+        let agent_body_height = self
+            .hits
+            .agent_body
+            .height
+            .max(self.hits.workspace_body.height);
         let Some(endpoint) = self
             .endpoints
             .iter()

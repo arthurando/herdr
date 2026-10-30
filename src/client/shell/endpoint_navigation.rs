@@ -57,6 +57,12 @@ impl ClientShellState {
         };
         let endpoint_id = hit.endpoint_id.clone();
         let collapse_toggle = super::contains(hit.collapse_toggle, point);
+        if !self.sidebar_collapsed && endpoint_id == self.active_endpoint_id {
+            if endpoint_id.is_local() {
+                self.activate_endpoint(endpoint_id, outcome);
+            }
+            return true;
+        }
         if collapse_toggle || endpoint_id == self.active_endpoint_id {
             if !self.collapsed_endpoints.remove(&endpoint_id) {
                 self.collapsed_endpoints.insert(endpoint_id.clone());
@@ -212,7 +218,10 @@ impl ClientShellState {
                     self.reveal_endpoint_agent(
                         &target.endpoint_id,
                         &target.pane_id,
-                        self.hits.agent_body.height,
+                        self.hits
+                            .agent_body
+                            .height
+                            .max(self.hits.workspace_body.height),
                     );
                 } else {
                     self.pending_agent_reveal =

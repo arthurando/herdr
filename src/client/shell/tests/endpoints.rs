@@ -74,6 +74,132 @@ fn state_with_remote() -> (ClientShellState, ClientEndpointId) {
 }
 
 #[test]
+fn unified_sidebar_keeps_multiple_panes_and_footer_controls() {
+    let (mut state, remote) = state_with_remote();
+    let mut projection = snapshot();
+    projection.boot_id = "remote-boot".into();
+    projection.workspaces[0].label = "Named session".into();
+    let mut second = projection.panes[0].clone();
+    second.pane_id = "pane_2".into();
+    second.focused = false;
+    projection.panes.push(second);
+    state.set_endpoint_snapshot(&remote, Box::new(projection));
+    state.collapsed_endpoints.insert(remote.clone());
+    let frame = state.compose(100, 28).expect("unified sidebar");
+    let text = frame
+        .cells
+        .chunks(frame.width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("Named session"));
+    assert!(!text.contains(" sessions"));
+    let workspace = state
+        .hits
+        .workspaces
+        .iter()
+        .find(|hit| hit.endpoint_id == remote)
+        .unwrap()
+        .rect;
+    let machine = state
+        .hits
+        .machines
+        .iter()
+        .find(|hit| hit.endpoint_id == remote)
+        .unwrap()
+        .rect;
+    let buffer = frame.to_ratatui_buffer().unwrap();
+    let name_cell = (workspace.x..workspace.right())
+        .map(|x| &buffer[(x, workspace.y)])
+        .find(|cell| cell.symbol() == "N")
+        .unwrap();
+    assert!(name_cell.modifier.contains(Modifier::BOLD));
+    assert!(matches!(name_cell.fg, ratatui::style::Color::Rgb(..)));
+    assert_eq!(
+        buffer[(machine.x, machine.y)].bg,
+        state.config.palette.panel_bg
+    );
+    assert!(state
+        .hits
+        .endpoint_agents
+        .iter()
+        .any(|(_, endpoint, pane)| endpoint == &remote && pane == "pane_1"));
+    assert!(state
+        .hits
+        .endpoint_agents
+        .iter()
+        .any(|(_, endpoint, pane)| endpoint == &remote && pane == "pane_2"));
+    assert_eq!(state.hits.new_workspace.y, 27);
+    assert_eq!(state.hits.global_launcher.y, 27);
+    assert!(state
+        .hits
+        .machines
+        .iter()
+        .all(|hit| hit.collapse_toggle.is_empty()));
+    let rect = state
+        .hits
+        .endpoint_agents
+        .iter()
+        .find(|(_, endpoint, pane)| endpoint == &remote && pane == "pane_2")
+        .unwrap()
+        .0;
+    let click = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: rect.x,
+        row: rect.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert!(click.actions.iter().any(|action| matches!(action,
+        ClientShellAction::ActivateEndpoint { endpoint_id, target: Some(ClientEndpointFocusTarget::Pane(pane_id)) }
+        if endpoint_id == &remote && pane_id == "pane_2")));
+}
+
+#[test]
+fn unified_sidebar_reveals_keyboard_selected_pane() {
+    let (mut state, _) = state_with_scrollable_agents();
+    state.compose(100, 20).unwrap();
+    state.workspace_scroll = state.hits.workspace_max_scroll;
+    state.compose(100, 20).unwrap();
+    let mut outcome = ClientShellInput::default();
+    assert!(
+        state.handle_endpoint_navigation(crate::input::KeybindAction::FocusAgent(0), &mut outcome)
+    );
+    state.compose(100, 20).unwrap();
+    assert!(state
+        .hits
+        .endpoint_agents
+        .iter()
+        .any(|(_, endpoint, pane)| endpoint.is_local() && pane == "pane_1"));
+}
+
+#[test]
+fn local_only_uses_the_same_unified_sidebar() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    let frame = state.compose(100, 28).unwrap();
+    let text = frame
+        .cells
+        .chunks(frame.width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains(" machines"));
+    assert!(text.contains("client-shell"));
+    assert!(!text.contains(" sessions"));
+    assert_eq!(state.hits.new_workspace.y, 27);
+    assert_eq!(state.hits.global_launcher.y, 27);
+}
+
+#[test]
 fn workspace_navigation_waits_for_the_target_presentation_fence() {
     use crate::client::endpoint::{EndpointNegotiation, EndpointRegistry};
     use crate::client::endpoint_commands::EndpointCommands;

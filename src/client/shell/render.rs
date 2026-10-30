@@ -268,7 +268,7 @@ pub(super) fn render_shell(
         );
     }
     if layout.sidebar.width > 0 {
-        if state.endpoints.len() > 1 {
+        if !state.endpoints.is_empty() && (!state.sidebar_collapsed || state.endpoints.len() > 1) {
             if state.sidebar_collapsed {
                 super::endpoint_sidebar::render_collapsed(
                     buffer,

@@ -249,10 +249,18 @@ pub(super) fn render_expanded(
     } else {
         Rect::new(area.right().saturating_sub(1), area.y, 1, area.height)
     };
-    let (workspace_area, detail_area) =
-        crate::ui::expanded_sidebar_sections(area, state.sidebar_section_split);
-    hits.sidebar_section_divider =
-        crate::ui::sidebar_section_divider_rect(area, state.sidebar_section_split);
+    let custom_view = active_snapshot.and_then(|snapshot| snapshot.agent_view_label.as_deref());
+    let (workspace_area, detail_area) = if custom_view.is_some() {
+        hits.sidebar_section_divider =
+            crate::ui::sidebar_section_divider_rect(area, state.sidebar_section_split);
+        crate::ui::expanded_sidebar_sections(area, state.sidebar_section_split)
+    } else {
+        hits.sidebar_section_divider = Rect::default();
+        (
+            Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height),
+            Rect::default(),
+        )
+    };
     put_text(
         buffer,
         workspace_area.x,
@@ -265,6 +273,15 @@ pub(super) fn render_expanded(
     );
 
     let empty_collapsed_groups = HashSet::new();
+    let agents =
+        super::endpoint_agents::agent_rows(state.endpoints, state.active_endpoint_id, config);
+    let mut agents_by_workspace = std::collections::HashMap::new();
+    for (index, agent) in agents.iter().enumerate() {
+        agents_by_workspace
+            .entry((&agent.endpoint_id, agent.workspace_id.as_str()))
+            .or_insert_with(Vec::new)
+            .push(index);
+    }
 
     enum Row {
         Endpoint(usize),
@@ -272,24 +289,28 @@ pub(super) fn render_expanded(
             endpoint: usize,
             entry: WorkspaceEntry,
         },
+        Agent(usize),
     }
     let mut rows = Vec::new();
     for (endpoint_index, endpoint) in state.endpoints.iter().enumerate() {
         rows.push(Row::Endpoint(endpoint_index));
-        if state.collapsed_endpoints.contains(&endpoint.endpoint_id) {
-            continue;
-        }
         if let Some(snapshot) = endpoint.snapshot.as_deref() {
             let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
                 .unwrap_or(&empty_collapsed_groups);
-            rows.extend(
-                super::sidebar::workspace_entries(snapshot, collapsed_groups)
-                    .into_iter()
-                    .map(|entry| Row::Workspace {
-                        endpoint: endpoint_index,
-                        entry,
-                    }),
-            );
+            for entry in super::sidebar::workspace_entries(snapshot, collapsed_groups) {
+                let workspace_id = &snapshot.workspaces[entry.index].workspace_id;
+                let matching =
+                    agents_by_workspace.get(&(&endpoint.endpoint_id, workspace_id.as_str()));
+                rows.push(Row::Workspace {
+                    endpoint: endpoint_index,
+                    entry,
+                });
+                if let Some(matching) =
+                    matching.filter(|matching| custom_view.is_none() && matching.len() > 1)
+                {
+                    rows.extend(matching.iter().copied().map(Row::Agent));
+                }
+            }
         }
     }
     let body = Rect::new(
@@ -305,6 +326,12 @@ pub(super) fn render_expanded(
         .iter()
         .map(|row| match row {
             Row::Endpoint(_) => 1,
+            Row::Agent(index) => agents[*index]
+                .agent
+                .rows
+                .len()
+                .max(1)
+                .min(u16::MAX as usize) as u16,
             Row::Workspace { endpoint, entry } => {
                 let endpoint = &state.endpoints[*endpoint];
                 let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
@@ -372,7 +399,7 @@ pub(super) fn render_expanded(
                         }
                     })
             }
-            Row::Endpoint(_) => false,
+            Row::Endpoint(_) | Row::Agent(_) => false,
         });
         if let Some(selected_row) = selected_row {
             *state.workspace_scroll = super::scroll::list_scroll_start_to_reveal(
@@ -406,30 +433,57 @@ pub(super) fn render_expanded(
                 }
                 let endpoint = &state.endpoints[*index];
                 let rect = Rect::new(body.x, y, content_width, 1);
-                let collapsed = state.collapsed_endpoints.contains(&endpoint.endpoint_id);
-                let marker = if collapsed { "▸" } else { "▾" };
                 let status_badge = render_endpoint_row(
                     buffer,
                     rect,
-                    marker,
+                    "",
                     endpoint,
-                    collapsed && &endpoint.endpoint_id == state.active_endpoint_id,
+                    false,
                     state.machine_diagnostics,
                     palette,
                 );
                 hits.machines.push(MachineHit {
                     rect,
                     status_badge,
-                    collapse_toggle: Rect::new(
-                        rect.x.saturating_add(1),
-                        rect.y,
-                        u16::from(rect.width > 1),
-                        1,
-                    ),
+                    collapse_toggle: Rect::default(),
                     endpoint_id: endpoint.endpoint_id.clone(),
                 });
                 y = y
                     .saturating_add(1)
+                    .saturating_add(gaps.get(row_index).copied().unwrap_or(0));
+            }
+            Row::Agent(index) => {
+                let agent = &agents[*index];
+                let height =
+                    (agent.agent.rows.len().max(1).min(u16::MAX as usize) as u16).min(body.height);
+                if y.saturating_add(height) > body.bottom() {
+                    break;
+                }
+                let rect = Rect::new(
+                    body.x.saturating_add(3),
+                    y,
+                    content_width.saturating_sub(3),
+                    height,
+                );
+                super::agent_sidebar::render_agent_row(buffer, rect, &agent.agent, config);
+                if agent.stale {
+                    buffer.set_style(
+                        rect,
+                        Style::default()
+                            .fg(palette.overlay0)
+                            .add_modifier(Modifier::DIM),
+                    );
+                }
+                hits.endpoint_agents.push((
+                    rect,
+                    agent.endpoint_id.clone(),
+                    agent.agent.pane_id.clone(),
+                ));
+                if &agent.endpoint_id == state.active_endpoint_id {
+                    hits.agents.push((rect, agent.agent.pane_id.clone()));
+                }
+                y = y
+                    .saturating_add(height)
                     .saturating_add(gaps.get(row_index).copied().unwrap_or(0));
             }
             Row::Workspace { endpoint, entry } => {
@@ -468,6 +522,8 @@ pub(super) fn render_expanded(
                 let selected = state.selected_workspace_id.is_some_and(|target| {
                     target.matches(&endpoint.endpoint_id, &workspace.workspace_id)
                 });
+                let dragged = endpoint_active
+                    && state.dragged_workspace_id == Some(workspace.workspace_id.as_str());
                 super::sidebar::render_workspace_rows(
                     buffer,
                     nested,
@@ -478,8 +534,9 @@ pub(super) fn render_expanded(
                     endpoint_active && workspace.focused,
                     selected,
                     state.selected_workspace_id.is_some(),
-                    false,
+                    dragged,
                     palette,
+                    Some(row_index),
                 );
                 if endpoint.status != ClientEndpointStatus::Online {
                     buffer.set_style(
@@ -504,6 +561,22 @@ pub(super) fn render_expanded(
                     indented: entry.indented,
                     group_toggle,
                 });
+                if custom_view.is_none() {
+                    if let Some(matching) = agents_by_workspace
+                        .get(&(&endpoint.endpoint_id, workspace.workspace_id.as_str()))
+                        .filter(|matching| matching.len() == 1)
+                    {
+                        let agent = &agents[matching[0]];
+                        hits.endpoint_agents.push((
+                            nested,
+                            endpoint.endpoint_id.clone(),
+                            agent.agent.pane_id.clone(),
+                        ));
+                        if endpoint_active {
+                            hits.agents.push((nested, agent.agent.pane_id.clone()));
+                        }
+                    }
+                }
                 y = y
                     .saturating_add(height)
                     .saturating_add(gaps.get(row_index).copied().unwrap_or(0));
@@ -515,26 +588,40 @@ pub(super) fn render_expanded(
         hits.workspace_scrollbar = track;
         super::scroll::render_list_scrollbar(buffer, track, metrics, palette);
     }
+    if let Some(row) = state
+        .workspace_drop_indicator_row
+        .filter(|row| *row >= body.y && *row < body.bottom())
+    {
+        put_text(
+            buffer,
+            body.x,
+            row,
+            body.width,
+            &"─".repeat(body.width as usize),
+            Style::default().fg(palette.accent),
+        );
+    }
 
     let footer_y = workspace_area.bottom().saturating_sub(1);
     if config.mouse_capture {
-        let label = format!(" new · {}", active_endpoint_label(state));
+        let label = format!(" [+] New · {}", active_endpoint_label(state));
+        let attention = active_snapshot.is_some_and(super::global_menu::global_menu_attention);
+        let width = if attention { 8 } else { 6 }.min(workspace_area.width);
+        let new_width = workspace_area.width.saturating_sub(width);
         hits.new_workspace = Rect::new(
             workspace_area.x,
             footer_y,
-            display_width(&label).min(workspace_area.width),
+            display_width(&label).min(new_width),
             u16::from(workspace_area.height > 0),
         );
         put_text(
             buffer,
             workspace_area.x,
             footer_y,
-            workspace_area.width,
+            new_width,
             &label,
             Style::default().fg(palette.overlay0),
         );
-        let attention = active_snapshot.is_some_and(super::global_menu::global_menu_attention);
-        let width = if attention { 8 } else { 6 }.min(workspace_area.width);
         hits.global_launcher = Rect::new(
             workspace_area.right().saturating_sub(width),
             footer_y,
@@ -553,19 +640,21 @@ pub(super) fn render_expanded(
             }),
         );
     }
-    super::endpoint_agents::render_expanded(
-        buffer,
-        detail_area,
-        active_snapshot.and_then(|snapshot| snapshot.agent_view_label.as_deref()),
-        state.endpoints,
-        state.active_endpoint_id,
-        config,
-        state.agent_scroll,
-        hits,
-    );
+    if custom_view.is_some() {
+        super::endpoint_agents::render_expanded(
+            buffer,
+            detail_area,
+            custom_view,
+            state.endpoints,
+            state.active_endpoint_id,
+            config,
+            state.agent_scroll,
+            hits,
+        );
+    }
     hits.sidebar_toggle = Rect::new(
         area.right().saturating_sub(2),
-        area.bottom().saturating_sub(1),
+        area.y,
         u16::from(area.width > 1),
         u16::from(area.height > 0),
     );
@@ -596,9 +685,14 @@ fn render_endpoint_row(
     auth: &super::machine_diagnostics::MachineDiagnostics,
     palette: &Palette,
 ) -> Rect {
-    if highlighted {
-        buffer.set_style(rect, Style::default().bg(palette.active_row_bg));
-    }
+    buffer.set_style(
+        rect,
+        Style::default().bg(if highlighted {
+            palette.active_row_bg
+        } else {
+            palette.panel_bg
+        }),
+    );
     let (glyph, state, color) = endpoint_status_presentation(endpoint.status, palette);
     let state = if endpoint.status == ClientEndpointStatus::Online {
         ""
