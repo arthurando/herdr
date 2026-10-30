@@ -156,3 +156,87 @@ impl ClientShellState {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn archive_renders_names_and_only_resumable_rows_are_clickable() {
+        let config = ClientShellConfig::from_config(&Config::default());
+        let panel = ArchivePanel {
+            open: true,
+            entries: vec![
+                ArchiveEntryInfo {
+                    id: "one".into(),
+                    name: "CRM cleanup".into(),
+                    resumable: true,
+                },
+                ArchiveEntryInfo {
+                    id: "two".into(),
+                    name: "Old session".into(),
+                    resumable: false,
+                },
+            ],
+            ..Default::default()
+        };
+        let rect = Rect::new(0, 0, 30, 4);
+        let mut buffer = Buffer::empty(rect);
+        let mut hits = ShellHitMap::default();
+        render(&mut buffer, rect, &panel, &config.palette, &mut hits);
+        assert!(
+            buffer
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+                .contains("CRM cleanup")
+        );
+        assert_eq!(hits.archive_rows.len(), 1);
+        assert_eq!(hits.archive_rows[0].1, "one");
+    }
+
+    #[test]
+    fn archive_checks_capability_and_requests_resume_by_id() {
+        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+        state.set_snapshot(Box::new(super::super::tests::snapshot()));
+        state.set_endpoint_methods(Some(vec!["workspace.list".into()]));
+        let mut outcome = ClientShellInput::default();
+        state.toggle_archive(&mut outcome);
+        assert!(outcome.actions.is_empty());
+        assert_eq!(
+            state.archive.message.as_deref(),
+            Some(" Server update required")
+        );
+        state.toggle_archive(&mut outcome);
+        state.set_endpoint_methods(Some(vec![
+            "workspace.archive.list".into(),
+            "workspace.archive.resume".into(),
+        ]));
+        state.toggle_archive(&mut outcome);
+        let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
+            panic!("expected archive list")
+        };
+        assert!(matches!(request.method, Method::WorkspaceArchiveList(_)));
+        let id = request.id.clone();
+        state.handle_endpoint_result(
+            "boot-1",
+            &id,
+            Ok(ResponseResult::ArchiveList {
+                entries: vec![ArchiveEntryInfo {
+                    id: "archive-1".into(),
+                    name: "CRM cleanup".into(),
+                    resumable: true,
+                }],
+            }),
+        );
+        let mut resume = ClientShellInput::default();
+        state.resume_archive("archive-1".into(), &mut resume);
+        let [ClientShellAction::Endpoint { request, .. }] = &resume.actions[..] else {
+            panic!("expected archive resume")
+        };
+        assert!(
+            matches!(&request.method, Method::WorkspaceArchiveResume(params) if params.id == "archive-1")
+        );
+    }
+}
