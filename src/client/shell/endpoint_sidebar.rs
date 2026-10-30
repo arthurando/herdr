@@ -190,7 +190,7 @@ pub(super) fn render_collapsed(
             workspace_area.x,
             divider_y,
             workspace_area.width,
-            &"─".repeat(workspace_area.width as usize),
+            &"?€".repeat(workspace_area.width as usize),
             Style::default().fg(palette.surface_dim),
         );
     }
@@ -372,12 +372,13 @@ pub(super) fn render_expanded(
         .iter()
         .map(|row| match row {
             Row::Endpoint(_) => 1,
-            Row::Agent(index) => agents[*index]
+            Row::Agent(index) => (agents[*index]
                 .agent
                 .rows
                 .len()
                 .max(1)
-                .min(u16::MAX as usize) as u16,
+                .min((u16::MAX - 2) as usize) as u16)
+                .saturating_add(2),
             Row::Workspace { endpoint, entry } => {
                 let endpoint = &state.endpoints[*endpoint];
                 let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
@@ -420,6 +421,7 @@ pub(super) fn render_expanded(
                         )
                     })
                     .unwrap_or(1)
+                    .saturating_add(2)
             }
         })
         .collect::<Vec<_>>();
@@ -433,7 +435,13 @@ pub(super) fn render_expanded(
                     endpoint: next_endpoint,
                     entry,
                 }),
-            ) if endpoint == next_endpoint => u16::from(!entry.indented) * config.spaces.row_gap,
+            ) if endpoint == next_endpoint => {
+                (u16::from(!entry.indented) * config.spaces.row_gap).max(1)
+            }
+            (
+                Row::Workspace { .. } | Row::Agent(_),
+                Some(Row::Workspace { .. } | Row::Agent(_)),
+            ) => 1,
             _ => 0,
         })
         .collect::<Vec<_>>();
@@ -515,8 +523,9 @@ pub(super) fn render_expanded(
             }
             Row::Agent(index) => {
                 let agent = &agents[*index];
-                let height =
-                    (agent.agent.rows.len().max(1).min(u16::MAX as usize) as u16).min(body.height);
+                let height = (agent.agent.rows.len().max(1).min((u16::MAX - 2) as usize) as u16)
+                    .saturating_add(2)
+                    .min(body.height);
                 if y.saturating_add(height) > body.bottom() {
                     break;
                 }
@@ -526,7 +535,15 @@ pub(super) fn render_expanded(
                     content_width.saturating_sub(1),
                     height,
                 );
-                super::agent_sidebar::render_agent_row(buffer, rect, &agent.agent, config);
+                buffer.set_style(rect, Style::default().bg(palette.panel_bg));
+                let padding = u16::from(rect.height >= 3);
+                let content = Rect::new(
+                    rect.x,
+                    rect.y.saturating_add(padding),
+                    rect.width,
+                    rect.height.saturating_sub(2 * padding),
+                );
+                super::agent_sidebar::render_agent_row(buffer, content, &agent.agent, config);
                 if agent.stale {
                     buffer.set_style(
                         rect,
@@ -579,18 +596,21 @@ pub(super) fn render_expanded(
                 let height = (single_agent
                     .map_or(tokens.len(), |agent| agent.agent.rows.len())
                     .max(1)
-                    .min(u16::MAX as usize) as u16)
+                    .min((u16::MAX - 2) as usize) as u16)
+                    .saturating_add(2)
                     .min(body.height);
                 if y.saturating_add(height) > body.bottom() {
                     break;
                 }
                 let rect = Rect::new(body.x, y, content_width, height);
+                let padding = u16::from(rect.height >= 3);
                 let nested = Rect::new(
                     rect.x.saturating_add(2),
-                    rect.y,
+                    rect.y.saturating_add(padding),
                     rect.width.saturating_sub(2),
-                    rect.height,
+                    rect.height.saturating_sub(2 * padding),
                 );
+                buffer.set_style(rect, Style::default().bg(palette.panel_bg));
                 let endpoint_active = &endpoint.endpoint_id == state.active_endpoint_id;
                 let selected = state.selected_workspace_id.is_some_and(|target| {
                     target.matches(&endpoint.endpoint_id, &workspace.workspace_id)
@@ -643,7 +663,7 @@ pub(super) fn render_expanded(
                 }
                 let group_toggle = super::sidebar::render_parent_group_toggle(
                     buffer,
-                    rect,
+                    Rect::new(rect.x, nested.y, rect.width, 1),
                     snapshot,
                     entry.index,
                     collapsed_groups,
@@ -692,7 +712,7 @@ pub(super) fn render_expanded(
             body.x,
             row,
             body.width,
-            &"─".repeat(body.width as usize),
+            &"?€".repeat(body.width as usize),
             Style::default().fg(palette.accent),
         );
     }
@@ -758,7 +778,7 @@ pub(super) fn render_expanded(
                 start_x,
                 footer_y,
                 2,
-                "● ",
+                "? ",
                 Style::default()
                     .fg(palette.accent)
                     .add_modifier(Modifier::BOLD),
@@ -818,14 +838,9 @@ fn render_endpoint_row(
     auth: &super::machine_diagnostics::MachineDiagnostics,
     palette: &Palette,
 ) -> Rect {
-    buffer.set_style(
-        rect,
-        Style::default().bg(if highlighted {
-            palette.active_row_bg
-        } else {
-            palette.panel_bg
-        }),
-    );
+    if highlighted {
+        buffer.set_style(rect, Style::default().bg(palette.active_row_bg));
+    }
     let (glyph, state, color) = endpoint_status_presentation(endpoint.status, palette);
     let state = if endpoint.status == ClientEndpointStatus::Online {
         ""

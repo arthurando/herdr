@@ -114,14 +114,14 @@ fn unified_sidebar_keeps_multiple_panes_and_footer_controls() {
         .rect;
     let buffer = frame.to_ratatui_buffer().unwrap();
     let name_cell = (workspace.x..workspace.right())
-        .map(|x| &buffer[(x, workspace.y)])
+        .map(|x| &buffer[(x, workspace.y + 1)])
         .find(|cell| cell.symbol() == "N")
         .unwrap();
     assert!(name_cell.modifier.contains(Modifier::BOLD));
     assert!(matches!(name_cell.fg, ratatui::style::Color::Rgb(..)));
     assert_eq!(
         buffer[(machine.x, machine.y)].bg,
-        state.config.palette.panel_bg
+        state.config.palette.sidebar_bg
     );
     assert!(state
         .hits
@@ -791,6 +791,7 @@ fn agent_navigation_keeps_scroll_when_target_is_visible() {
 #[test]
 fn switching_machines_preserves_aggregate_agent_scroll_and_visible_rows() {
     let (mut state, remote) = state_with_scrollable_agents();
+    state.compose(100, 90).unwrap();
     for endpoint_id in [remote.clone(), ClientEndpointId::Local, remote] {
         let visible = state.hits.endpoint_agents.clone();
         let (rect, _, pane_id) = visible
@@ -822,7 +823,7 @@ fn switching_machines_preserves_aggregate_agent_scroll_and_visible_rows() {
         let mut next_surface = surface();
         next_surface.boot_id = state.endpoint_boot_id(&endpoint_id).unwrap().into();
         state.set_pane_surface(next_surface);
-        state.compose(100, 28).unwrap();
+        state.compose(100, 90).unwrap();
         assert_eq!(state.agent_scroll, 6);
         assert_eq!(state.hits.endpoint_agents, visible);
     }
@@ -1174,7 +1175,7 @@ fn saved_machine_preserves_endpoint_scoped_worktree_collapses() {
     let buffer = frame.to_ratatui_buffer().expect("frame should reconstruct");
     assert_eq!(buffer[(local_toggle.x, local_toggle.y)].symbol(), "▸");
     assert!((local_parent.rect.x..local_parent.rect.right())
-        .any(|x| buffer[(x, local_parent.rect.y)].fg == state.config.palette.red));
+        .any(|x| buffer[(x, local_parent.rect.y + 1)].fg == state.config.palette.red));
 
     assert!(state.activate_endpoint_projection(&remote_id));
     let mut remote_surface = surface();
@@ -1426,7 +1427,7 @@ fn expanded_machine_sidebar_applies_space_row_gap_within_each_machine() {
     assert_eq!(remote_workspaces[0].rect.y, remote_machine.rect.bottom());
     assert_eq!(
         remote_workspaces[1].rect.y,
-        remote_workspaces[0].rect.bottom()
+        remote_workspaces[0].rect.bottom() + 1
     );
     assert_eq!(
         remote_workspaces[2].rect.y,
@@ -1434,7 +1435,7 @@ fn expanded_machine_sidebar_applies_space_row_gap_within_each_machine() {
     );
 
     state.workspace_scroll = usize::MAX;
-    state.compose(100, 14).expect("scrolled endpoint frame");
+    state.compose(100, 17).expect("scrolled endpoint frame");
     let metrics = state
         .hits
         .workspace_scroll_metrics
