@@ -1901,6 +1901,18 @@ impl ClientShellState {
                     outcome,
                 );
             }
+            MouseEventKind::ScrollUp if super::contains(self.hits.archive_body, point) => {
+                self.archive.scroll = self.archive.scroll.saturating_sub(1);
+                outcome.repaint = true;
+            }
+            MouseEventKind::ScrollDown if super::contains(self.hits.archive_body, point) => {
+                self.archive.scroll = self
+                    .archive
+                    .scroll
+                    .saturating_add(1)
+                    .min(self.hits.archive_max_scroll);
+                outcome.repaint = true;
+            }
             MouseEventKind::ScrollUp if super::contains(self.hits.agent_body, point) => {
                 let next = self.agent_scroll.saturating_sub(1);
                 if next != self.agent_scroll {
@@ -2042,6 +2054,20 @@ impl ClientShellState {
                     self.agent_scroll = 0;
                     self.persist_chrome_preferences(outcome);
                     outcome.repaint = true;
+                    return;
+                }
+                if super::contains(self.hits.archive_toggle, point) {
+                    self.toggle_archive(outcome);
+                    return;
+                }
+                if let Some(id) = self
+                    .hits
+                    .archive_rows
+                    .iter()
+                    .find(|(rect, _)| super::contains(*rect, point))
+                    .map(|(_, id)| id.clone())
+                {
+                    self.resume_archive(id, outcome);
                     return;
                 }
                 if self.handle_endpoint_machine_click(point, outcome) {
