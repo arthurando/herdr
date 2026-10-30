@@ -83,6 +83,9 @@ pub(super) fn render_expanded(
             }
             hits.endpoint_agents
                 .push((rect, row.endpoint_id.clone(), row.agent.pane_id.clone()));
+            if endpoints.len() == 1 && &row.endpoint_id == active_endpoint_id {
+                hits.agents.push((rect, row.agent.pane_id.clone()));
+            }
         },
     );
 }
@@ -94,6 +97,86 @@ impl ClientShellState {
         pane_id: &str,
         body_height: u16,
     ) {
+        if self
+            .snapshot
+            .as_deref()
+            .and_then(|snapshot| snapshot.agent_view_label.as_deref())
+            .is_none()
+        {
+            let agents = agent_rows(&self.endpoints, &self.active_endpoint_id, &self.config);
+            let Some(target) = agents
+                .iter()
+                .find(|row| &row.endpoint_id == endpoint_id && row.agent.pane_id == pane_id)
+            else {
+                return;
+            };
+            let mut index = 0;
+            let empty = HashSet::new();
+            for endpoint in &self.endpoints {
+                index += 1;
+                if let Some(snapshot) = endpoint.snapshot.as_deref() {
+                    let collapsed = if endpoint.endpoint_id.is_local() {
+                        &self.collapsed_groups
+                    } else {
+                        self.remote_collapsed_groups
+                            .get(&endpoint.endpoint_id)
+                            .unwrap_or(&empty)
+                    };
+                    let mut groups: Vec<Vec<WorkspaceEntry>> = Vec::new();
+                    for entry in super::sidebar::workspace_entries(snapshot, collapsed) {
+                        if !entry.indented || groups.is_empty() {
+                            groups.push(Vec::new());
+                        }
+                        groups.last_mut().unwrap().push(entry);
+                    }
+                    if self.config.agent_panel_sort == crate::config::AgentPanelSortConfig::Priority
+                    {
+                        groups.sort_by_key(|group| {
+                            group
+                                .iter()
+                                .filter_map(|entry| {
+                                    let workspace = &snapshot.workspaces[entry.index];
+                                    agents.iter().position(|row| {
+                                        row.endpoint_id == endpoint.endpoint_id
+                                            && row.workspace_id == workspace.workspace_id
+                                    })
+                                })
+                                .min()
+                                .unwrap_or(usize::MAX)
+                        });
+                    }
+                    for entry in groups.into_iter().flatten() {
+                        let workspace = &snapshot.workspaces[entry.index];
+                        let matching: Vec<_> = agents
+                            .iter()
+                            .filter(|row| {
+                                row.endpoint_id == endpoint.endpoint_id
+                                    && row.workspace_id == workspace.workspace_id
+                            })
+                            .collect();
+                        if endpoint.endpoint_id == target.endpoint_id
+                            && workspace.workspace_id == target.workspace_id
+                        {
+                            if matching.len() > 1 {
+                                index += 1 + matching
+                                    .iter()
+                                    .position(|row| row.agent.pane_id == pane_id)
+                                    .unwrap_or(0);
+                            }
+                            self.workspace_scroll = index;
+                            self.reveal_focused_workspace = false;
+                            return;
+                        }
+                        index += 1 + if matching.len() > 1 {
+                            matching.len()
+                        } else {
+                            0
+                        };
+                    }
+                }
+            }
+            return;
+        }
         if body_height == 0 {
             return;
         }
@@ -122,14 +205,15 @@ impl ClientShellState {
     }
 }
 
-struct EndpointAgentRow {
-    endpoint_id: ClientEndpointId,
-    machine_label: String,
-    stale: bool,
-    agent: super::agent_sidebar::AgentRow,
+pub(super) struct EndpointAgentRow {
+    pub(super) endpoint_id: ClientEndpointId,
+    pub(super) workspace_id: String,
+    pub(super) machine_label: String,
+    pub(super) stale: bool,
+    pub(super) agent: super::agent_sidebar::AgentRow,
 }
 
-fn agent_rows(
+pub(super) fn agent_rows(
     endpoints: &[ClientShellEndpoint],
     active_endpoint_id: &ClientEndpointId,
     config: &ClientShellConfig,
@@ -150,6 +234,7 @@ fn agent_rows(
         agent.focused &= row.endpoint.endpoint_id == active_endpoint_id;
         Some(EndpointAgentRow {
             endpoint_id: row.endpoint.endpoint_id.clone(),
+            workspace_id: row.agent.workspace_id.clone(),
             machine_label: row.endpoint.label.to_owned(),
             stale: row.endpoint.stale(),
             agent,

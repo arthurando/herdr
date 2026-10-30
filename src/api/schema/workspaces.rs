@@ -5,6 +5,18 @@ use serde::{Deserialize, Serialize};
 use super::common::AgentStatus;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ArchiveEntryInfo {
+    pub id: String,
+    pub name: String,
+    pub resumable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ArchiveResumeParams {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorkspaceCreateParams {
     /// Workspace whose focused pane supplies the `follow` cwd policy.
     #[serde(default, skip_serializing_if = "Option::is_none")]

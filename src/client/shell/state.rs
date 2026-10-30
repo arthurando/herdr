@@ -84,6 +84,10 @@ pub(super) enum ClientMobileTarget {
 #[derive(Default)]
 pub(super) struct ShellHitMap {
     pub(super) machines: Vec<MachineHit>,
+    pub(super) archive_toggle: Rect,
+    pub(super) archive_body: Rect,
+    pub(super) archive_rows: Vec<(Rect, String)>,
+    pub(super) archive_max_scroll: usize,
     pub(super) workspaces: Vec<WorkspaceHit>,
     pub(super) workspace_body: Rect,
     pub(super) workspace_scrollbar: Rect,
@@ -630,6 +634,8 @@ pub(super) enum PendingEndpointKind {
         truncated: bool,
     },
     Generic,
+    ArchiveList,
+    ArchiveResume,
     ProductAnnouncementDismiss {
         version: String,
         id: String,
@@ -955,6 +961,7 @@ pub(crate) struct ClientShellState {
     pub(super) popup_pending_deadline: Option<std::time::Instant>,
     pub(super) next_request_id: u64,
     pub(super) pending_requests: HashMap<String, PendingEndpointRequest>,
+    pub(super) archive: super::archive::ArchivePanel,
     pub(super) pending_integration_installs: usize,
     pub(super) pending_notifications: Vec<ClientPendingNotification>,
     pub(super) visible_notification: Option<ClientVisibleNotification>,
@@ -1125,6 +1132,7 @@ impl ClientShellState {
             popup_pending_deadline: None,
             next_request_id: 1,
             pending_requests: HashMap::new(),
+            archive: super::archive::ArchivePanel::default(),
             pending_integration_installs: 0,
             pending_notifications: Vec::new(),
             visible_notification: None,
@@ -1273,6 +1281,7 @@ impl ClientShellState {
         self.last_composed_at = None;
         self.selection_repaint_deadline = None;
         self.pending_requests.clear();
+        self.archive = super::archive::ArchivePanel::default();
         self.pane_scroll_in_flight.clear();
         self.pane_scroll_queued.clear();
         self.pane_scroll_targets.clear();

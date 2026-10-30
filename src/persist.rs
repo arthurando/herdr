@@ -4,6 +4,7 @@
 //! Optional pane screen history is stored separately at `session-history.json`.
 //! Installed plugins are persisted separately at `plugins.json`.
 
+pub(crate) mod archive;
 mod io;
 pub mod plugin_registry;
 mod restore;

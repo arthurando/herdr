@@ -27,7 +27,6 @@ pub(crate) struct ClientShellEndpoint {
 pub(super) struct MachineHit {
     pub(super) rect: Rect,
     pub(super) status_badge: Rect,
-    pub(super) collapse_toggle: Rect,
     pub(super) endpoint_id: ClientEndpointId,
 }
 
@@ -217,7 +216,11 @@ impl ClientShellState {
         let pending_agent_reveal = self
             .pending_agent_reveal
             .take_if(|(target_endpoint, _)| target_endpoint == endpoint_id);
-        let agent_body_height = self.hits.agent_body.height;
+        let agent_body_height = self
+            .hits
+            .agent_body
+            .height
+            .max(self.hits.workspace_body.height);
         let Some(endpoint) = self
             .endpoints
             .iter()
@@ -235,6 +238,9 @@ impl ClientShellState {
         let switching_endpoint = endpoint_id != &self.active_endpoint_id;
         let agent_scroll = self.agent_scroll;
         if switching_endpoint {
+            self.archive = super::archive::ArchivePanel::default();
+            self.hits.archive_body = Rect::default();
+            self.hits.archive_rows.clear();
             self.active_endpoint_id = endpoint_id.clone();
             self.pane_surface = None;
             self.pending_pane_surface = None;

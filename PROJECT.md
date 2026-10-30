@@ -1,14 +1,32 @@
 # Local text tools fork
 
-This branch adds client-only text tools on the official v0.9.5 base
+This branch adds local text tools and workspace archives on the official v0.9.5 base
 `2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01`. Protocol generation 1 and private
 protocol 22 remain unchanged. Do not push implementation changes to the upstream
 repository; this is a user-owned fork.
 
 ## Behavior and ownership
 
-- The default sessions panel uses the machine panel workspace name for each pane.
-  Terminal titles do not replace that name; session rows retain their colours.
+- Explicit workspace, final tab, and final pane closes save a per-server archive
+  before closing. Archives retain the displayed workspace name and snapshot.
+  Other explicit pane and tab closes save each affected pane as a separate
+  archive that resumes into a new workspace.
+  `workspace.archive.list` marks entries resumable only when every saved pane has
+  a supported exact native agent identity. `workspace.archive.resume` rejects
+  active duplicates and retains the archive. Other processes and historical
+  snapshots are not recovered by this feature. A server without these methods
+  cannot provide an archive list. When session persistence is disabled, list and
+  resume return `archive_disabled` rather than reporting an empty archive.
+
+- The default sidebar groups sessions under always-expanded machines. Session names
+  use bold rainbow colours; multi-pane workspaces retain separate pane targets.
+  New, Archive and menu controls remain at the bottom. Priority order applies
+  within each machine and preserves worktree groups. Custom agent views retain
+  their dedicated list and configurable rows.
+- Archive entries are scoped to the selected server. Explicitly closed workspaces
+  and panes can be listed when session persistence is enabled. Resume is offered
+  only when saved process identities can be resumed safely. Older sampled recovery
+  snapshots are not imported into the archive.
 
 - `src/client/shell/local_history.rs` owns bounded, immutable text snapshots,
   local line selection and local scroll. It never concatenates screen redraws.

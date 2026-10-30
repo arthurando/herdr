@@ -333,6 +333,7 @@ pub(crate) fn render_sidebar(
             state.selected_workspace_id.is_some(),
             dragged,
             palette,
+            None,
         );
         let group_toggle = render_parent_group_toggle(
             buffer,
@@ -723,6 +724,7 @@ pub(in crate::client::shell) fn render_workspace_rows(
     navigating: bool,
     dragged: bool,
     palette: &Palette,
+    rainbow_index: Option<usize>,
 ) {
     for (row_index, row) in rows.iter().enumerate() {
         let y = area.y + row_index as u16;
@@ -756,13 +758,35 @@ pub(in crate::client::shell) fn render_workspace_rows(
             x = x.saturating_add(3);
         }
         let highlighted = focused || dragged;
+        let rainbow = if focused || selected {
+            [
+                (145, 25, 40),
+                (137, 65, 0),
+                (102, 83, 0),
+                (0, 104, 64),
+                (0, 78, 145),
+                (93, 45, 139),
+            ]
+        } else {
+            [
+                (255, 116, 126),
+                (255, 175, 90),
+                (244, 216, 100),
+                (120, 220, 158),
+                (120, 190, 255),
+                (207, 157, 255),
+            ]
+        };
         let workspace_style = Style::default()
-            .fg(if highlighted {
+            .fg(if let Some(index) = rainbow_index {
+                let (r, g, b) = rainbow[index % rainbow.len()];
+                ratatui::style::Color::Rgb(r, g, b)
+            } else if highlighted {
                 palette.text
             } else {
                 palette.subtext0
             })
-            .add_modifier(if highlighted {
+            .add_modifier(if highlighted || rainbow_index.is_some() {
                 Modifier::BOLD
             } else {
                 Modifier::empty()

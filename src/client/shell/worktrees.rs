@@ -527,6 +527,8 @@ impl ClientShellState {
             }
             (
                 PendingEndpointKind::Generic
+                | PendingEndpointKind::ArchiveList
+                | PendingEndpointKind::ArchiveResume
                 | PendingEndpointKind::LocalHistory { .. }
                 | PendingEndpointKind::ProductAnnouncementDismiss { .. }
                 | PendingEndpointKind::ReleaseNotesDismiss

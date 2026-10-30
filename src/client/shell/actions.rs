@@ -576,6 +576,13 @@ impl ClientShellState {
                 return (true, Vec::new());
             }
             PendingEndpointKind::Generic => {}
+            PendingEndpointKind::ArchiveList => {
+                self.complete_archive_list(request_id, result);
+                return (true, Vec::new());
+            }
+            PendingEndpointKind::ArchiveResume => {
+                return (true, Vec::new());
+            }
             PendingEndpointKind::PaneLinkResolve { .. } => unreachable!("handled above"),
             PendingEndpointKind::ProductAnnouncementDismiss { version, id } => {
                 return match result {

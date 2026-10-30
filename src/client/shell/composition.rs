@@ -55,10 +55,10 @@ impl ClientShellState {
                     == Some(ClientEndpointStatus::Online)
         });
         let mut render_state = render::ShellRenderState {
+            archive: &self.archive,
             machine_diagnostics: &self.machine_diagnostics,
             endpoints: &self.endpoints,
             active_endpoint_id: &self.active_endpoint_id,
-            collapsed_endpoints: &self.collapsed_endpoints,
             collapsed_groups: &self.collapsed_groups,
             remote_collapsed_groups: &self.remote_collapsed_groups,
             workspace_scroll: &mut self.workspace_scroll,
@@ -78,15 +78,17 @@ impl ClientShellState {
             dragged_workspace_id: None,
             workspace_drop_indicator_row: None,
         };
-        if let Some(snapshot) = local_snapshot {
-            render::render_sidebar(
-                &mut buffer,
-                sidebar,
-                snapshot,
-                &self.config,
-                &mut render_state,
-                &mut self.hits,
-            );
+        if self.endpoints.is_empty() {
+            if let Some(snapshot) = local_snapshot {
+                render::render_sidebar(
+                    &mut buffer,
+                    sidebar,
+                    snapshot,
+                    &self.config,
+                    &mut render_state,
+                    &mut self.hits,
+                );
+            }
         } else {
             super::endpoint_sidebar::render_expanded(
                 &mut buffer,
@@ -211,10 +213,10 @@ impl ClientShellState {
             snapshot,
             &self.config,
             render::ShellRenderState {
+                archive: &self.archive,
                 machine_diagnostics: &self.machine_diagnostics,
                 endpoints: &self.endpoints,
                 active_endpoint_id: &self.active_endpoint_id,
-                collapsed_endpoints: &self.collapsed_endpoints,
                 collapsed_groups: &self.collapsed_groups,
                 remote_collapsed_groups: &self.remote_collapsed_groups,
                 workspace_scroll: &mut self.workspace_scroll,

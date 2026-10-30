@@ -246,6 +246,9 @@ impl App {
                     "closing this tab would close a worktree group",
                 );
             }
+            if let Err(err) = self.archive_workspaces(&self.state.workspace_close_indices(ws_idx)) {
+                return encode_error(id, "archive_write_failed", err.to_string());
+            }
             let workspace = self.workspace_info(ws_idx);
             self.state.selected = ws_idx;
             self.state.close_selected_workspace();
@@ -268,6 +271,9 @@ impl App {
             return encode_success(id, ResponseResult::Ok {});
         }
 
+        if let Err(err) = self.archive_panes(ws_idx, &pane_ids) {
+            return encode_error(id, "archive_write_failed", err.to_string());
+        }
         let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
             return tab_not_found(id, &target.tab_id);
         };

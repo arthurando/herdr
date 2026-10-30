@@ -35,11 +35,19 @@ impl ClientShellState {
         press: ClientWorkspacePress,
         outcome: &mut ClientShellInput,
     ) {
-        self.focus_or_activate(
-            press.endpoint_id,
-            ClientEndpointFocusTarget::Workspace(press.workspace_id),
-            outcome,
-        );
+        let point = (press.start_column, press.start_row);
+        let pane = self
+            .hits
+            .endpoint_agents
+            .iter()
+            .find(|(rect, endpoint, _)| {
+                endpoint == &press.endpoint_id && super::contains(*rect, point)
+            })
+            .map(|(_, _, pane)| pane.clone());
+        let target = pane
+            .map(ClientEndpointFocusTarget::Pane)
+            .unwrap_or(ClientEndpointFocusTarget::Workspace(press.workspace_id));
+        self.focus_or_activate(press.endpoint_id, target, outcome);
     }
 
     pub(super) fn handle_endpoint_machine_click(
@@ -56,16 +64,13 @@ impl ClientShellState {
             return false;
         };
         let endpoint_id = hit.endpoint_id.clone();
-        let collapse_toggle = super::contains(hit.collapse_toggle, point);
-        if collapse_toggle || endpoint_id == self.active_endpoint_id {
-            if !self.collapsed_endpoints.remove(&endpoint_id) {
-                self.collapsed_endpoints.insert(endpoint_id.clone());
-            }
-            outcome.repaint = true;
-            if !collapse_toggle && endpoint_id.is_local() {
+        if endpoint_id == self.active_endpoint_id {
+            if endpoint_id.is_local() {
                 self.activate_endpoint(endpoint_id, outcome);
             }
-        } else if endpoint_id.is_local() || self.endpoint_is_online(&endpoint_id) {
+            return true;
+        }
+        if endpoint_id.is_local() || self.endpoint_is_online(&endpoint_id) {
             outcome.actions.push(ClientShellAction::ActivateEndpoint {
                 endpoint_id,
                 target: None,
@@ -167,11 +172,24 @@ impl ClientShellState {
             action,
             KeybindAction::PreviousAgent | KeybindAction::NextAgent | KeybindAction::FocusAgent(_)
         ) {
-            let agents = super::aggregate_navigation::online_agent_targets(
+            let mut agents = super::aggregate_navigation::online_agent_targets(
                 &self.endpoints,
                 &self.active_endpoint_id,
                 self.config.agent_panel_sort,
             );
+            if self
+                .snapshot
+                .as_deref()
+                .and_then(|snapshot| snapshot.agent_view_label.as_deref())
+                .is_none()
+            {
+                agents.sort_by_key(|target| {
+                    self.endpoints
+                        .iter()
+                        .position(|endpoint| endpoint.endpoint_id == target.endpoint_id)
+                        .unwrap_or(usize::MAX)
+                });
+            }
             if agents.is_empty() {
                 return true;
             }
@@ -212,7 +230,10 @@ impl ClientShellState {
                     self.reveal_endpoint_agent(
                         &target.endpoint_id,
                         &target.pane_id,
-                        self.hits.agent_body.height,
+                        self.hits
+                            .agent_body
+                            .height
+                            .max(self.hits.workspace_body.height),
                     );
                 } else {
                     self.pending_agent_reveal =
