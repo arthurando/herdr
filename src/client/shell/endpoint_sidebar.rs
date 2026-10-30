@@ -190,7 +190,7 @@ pub(super) fn render_collapsed(
             workspace_area.x,
             divider_y,
             workspace_area.width,
-            &"?€".repeat(workspace_area.width as usize),
+            &"─".repeat(workspace_area.width as usize),
             Style::default().fg(palette.surface_dim),
         );
     }
@@ -712,7 +712,7 @@ pub(super) fn render_expanded(
             body.x,
             row,
             body.width,
-            &"?€".repeat(body.width as usize),
+            &"─".repeat(body.width as usize),
             Style::default().fg(palette.accent),
         );
     }
@@ -778,7 +778,7 @@ pub(super) fn render_expanded(
                 start_x,
                 footer_y,
                 2,
-                "? ",
+                "● ",
                 Style::default()
                     .fg(palette.accent)
                     .add_modifier(Modifier::BOLD),
@@ -838,9 +838,6 @@ fn render_endpoint_row(
     auth: &super::machine_diagnostics::MachineDiagnostics,
     palette: &Palette,
 ) -> Rect {
-    if highlighted {
-        buffer.set_style(rect, Style::default().bg(palette.active_row_bg));
-    }
     let (glyph, state, color) = endpoint_status_presentation(endpoint.status, palette);
     let state = if endpoint.status == ClientEndpointStatus::Online {
         ""
@@ -873,7 +870,11 @@ fn render_endpoint_row(
                     palette.text
                 },
             )
-            .add_modifier(Modifier::BOLD),
+            .add_modifier(if highlighted {
+                Modifier::BOLD | Modifier::UNDERLINED
+            } else {
+                Modifier::BOLD
+            }),
     );
     put_right_text(
         buffer,
