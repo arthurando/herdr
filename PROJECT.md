@@ -15,7 +15,8 @@ repository; this is a user-owned fork.
   a supported exact native agent identity. `workspace.archive.resume` rejects
   active duplicates and retains the archive. Other processes and historical
   snapshots are not recovered by this feature. A server without these methods
-  cannot provide an archive list.
+  cannot provide an archive list. When session persistence is disabled, list and
+  resume return `archive_disabled` rather than reporting an empty archive.
 
 - The default sessions panel uses the machine panel workspace name for each pane.
   Terminal titles do not replace that name; session rows retain their colours.

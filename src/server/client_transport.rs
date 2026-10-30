@@ -1861,6 +1861,19 @@ mod tests {
     }
 
     #[test]
+    fn archive_requests_are_dispatched_by_endpoint_transport() {
+        for request in [
+            r#"{"id":"list","method":"workspace.archive.list","params":{}}"#,
+            r#"{"id":"resume","method":"workspace.archive.resume","params":{"id":"1-2-3"}}"#,
+        ] {
+            assert!(matches!(
+                decode_endpoint_request(request).unwrap(),
+                DecodedEndpointRequest::Dispatch(_)
+            ));
+        }
+    }
+
+    #[test]
     fn unknown_endpoint_method_returns_correlated_error() {
         let decoded = decode_endpoint_request(
             r#"{"id":"req-1","method":"plugin.future","params":{"value":1}}"#,

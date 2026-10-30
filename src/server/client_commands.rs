@@ -43,6 +43,8 @@ const CLIENT_SHELL_METHODS: &[&str] = &[
     "tab.focus",
     "tab.move",
     "tab.rename",
+    "workspace.archive.list",
+    "workspace.archive.resume",
     "workspace.close",
     "workspace.create",
     "workspace.focus",
@@ -297,11 +299,33 @@ mod tests {
             actual.remove("pane.link.resolve").as_deref(),
             Some("f5e4a3e01453ae7b188f127ce951c12c20e0bebcc17cc364eeb6d1a01fd5bf81")
         );
+        assert_eq!(
+            actual.remove("workspace.archive.list").as_deref(),
+            Some("3d7bfb7c5badd93ef4aac3a8d678e272511649938590609df4c442d344676c1e")
+        );
+        assert_eq!(
+            actual.remove("workspace.archive.resume").as_deref(),
+            Some("5abf79ff84f7cbda97302b39682d3fced03795c385719ee96c7d42e11ef9c1b8")
+        );
 
         assert_eq!(
             actual, expected,
             "an existing endpoint method changed shape; add load-bearing behavior as a new advertised method or explicitly gate new fields"
         );
+    }
+
+    #[test]
+    fn archive_methods_are_advertised_and_admitted() {
+        for method in [
+            Method::WorkspaceArchiveList(crate::api::schema::EmptyParams::default()),
+            Method::WorkspaceArchiveResume(crate::api::schema::ArchiveResumeParams {
+                id: "1-2-3".into(),
+            }),
+        ] {
+            let name = crate::api::api_method_name(&method);
+            assert!(supported_client_shell_method_names().contains(&name));
+            assert!(supports_client_shell_method(&method));
+        }
     }
 
     #[test]

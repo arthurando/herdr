@@ -108,6 +108,9 @@ impl App {
     }
 
     pub(super) fn handle_archive_list(&self, id: String) -> String {
+        if !self.policy.persist_session {
+            return encode_error(id, "archive_disabled", "Session persistence is disabled.");
+        }
         match crate::persist::archive::list(&crate::persist::archive::directory()) {
             Ok(entries) => encode_success(
                 id,
@@ -132,6 +135,9 @@ impl App {
         id: String,
         params: ArchiveResumeParams,
     ) -> String {
+        if !self.policy.persist_session {
+            return encode_error(id, "archive_disabled", "Session persistence is disabled.");
+        }
         let entry = match crate::persist::archive::load(
             &crate::persist::archive::directory(),
             &params.id,
@@ -231,6 +237,27 @@ mod tests {
     use super::*;
     use crate::api::schema::{ErrorResponse, SuccessResponse};
     use crate::workspace::Workspace;
+
+    #[tokio::test]
+    async fn disabled_persistence_is_reported_to_archive_client() {
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &crate::config::Config::default(),
+            crate::app::AppPolicy::TEST,
+            None,
+            rx,
+            crate::api::EventHub::default(),
+        );
+        let list: ErrorResponse =
+            serde_json::from_str(&app.handle_archive_list("list".into())).unwrap();
+        assert_eq!(list.error.code, "archive_disabled");
+        let resume: ErrorResponse = serde_json::from_str(&app.handle_archive_resume(
+            "resume".into(),
+            crate::api::schema::ArchiveResumeParams { id: "1-2-3".into() },
+        ))
+        .unwrap();
+        assert_eq!(resume.error.code, "archive_disabled");
+    }
 
     #[tokio::test]
     async fn closed_named_agent_workspace_can_resume_once() {
