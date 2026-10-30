@@ -1,11 +1,19 @@
 # Local text tools fork
 
-This branch adds client-only text tools on the official v0.9.5 base
+This branch adds local text tools and workspace archives on the official v0.9.5 base
 `2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01`. Protocol generation 1 and private
 protocol 22 remain unchanged. Do not push implementation changes to the upstream
 repository; this is a user-owned fork.
 
 ## Behavior and ownership
+
+- Explicit workspace, final tab, and final pane closes save a per-server archive
+  before closing. Archives retain the displayed workspace name and snapshot.
+  `workspace.archive.list` marks entries resumable only when every saved pane has
+  a supported exact native agent identity. `workspace.archive.resume` rejects
+  active duplicates and retains the archive. Other processes and historical
+  snapshots are not recovered by this feature. A server without these methods
+  cannot provide an archive list.
 
 - The default sessions panel uses the machine panel workspace name for each pane.
   Terminal titles do not replace that name; session rows retain their colours.
