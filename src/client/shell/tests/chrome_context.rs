@@ -162,7 +162,7 @@ fn focused_workspace_change_reveals_new_workspace_in_full_sidebar() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(initial));
     state.set_pane_surface(surface());
-    state.compose(106, 20).expect("full sidebar");
+    state.compose(106, 12).expect("full sidebar");
     assert!(state.hits.workspace_max_scroll > 0);
     assert!(state
         .hits
@@ -182,7 +182,7 @@ fn focused_workspace_change_reveals_new_workspace_in_full_sidebar() {
     state.set_pane_surface(updated_surface);
     state.compose(106, 2).expect("zero-height workspace body");
     assert!(state.reveal_focused_workspace);
-    state.compose(106, 20).expect("updated full sidebar");
+    state.compose(106, 12).expect("updated full sidebar");
 
     assert!(state
         .hits
@@ -197,7 +197,7 @@ fn client_owned_sidebar_dividers_resize_live() {
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
     state.compose(106, 30).expect("expanded sidebar");
-    assert!(state.hits.machines.is_empty());
+    assert_eq!(state.hits.machines.len(), 1);
     let workspace_body = state.hits.workspace_body;
     let needless_scroll =
         state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
@@ -234,17 +234,16 @@ fn client_owned_sidebar_dividers_resize_live() {
         .map(|cell| cell.symbol.as_str())
         .collect();
     assert!(
-        waiting_text.contains(" spaces"),
-        "local sidebar must keep spaces while resizing: {waiting_text}"
+        waiting_text.contains(" machines"),
+        "local sidebar must keep machines while resizing: {waiting_text}"
     );
-    assert!(!waiting_text.contains(" machines"));
     assert!(!waiting_text.contains("Select a connected machine"));
     assert!(!waiting_text.contains("LIVE"));
     assert!(waiting_frame.cursor.is_none());
     assert!(state.pane_surface.is_none());
     assert!(state.hits.panes.is_empty());
     assert!(state.hits.pane_splits.is_empty());
-    assert!(state.hits.machines.is_empty());
+    assert_eq!(state.hits.machines.len(), 1);
     assert_eq!(state.hits.sidebar_divider.x, 31);
     assert_eq!(state.hits.workspaces[0].workspace_id, "ws_1");
 
@@ -273,25 +272,10 @@ fn client_owned_sidebar_dividers_resize_live() {
         .iter()
         .map(|cell| cell.symbol.as_str())
         .collect();
-    assert!(recovered_text.contains(" spaces"));
+    assert!(recovered_text.contains(" machines"));
     assert!(recovered_text.contains("LIVE"));
     assert!(!state.hits.panes.is_empty());
-    let section_divider = state.hits.sidebar_section_divider;
-    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: section_divider.x + 2,
-        row: section_divider.y,
-        modifiers: KeyModifiers::empty(),
-    })]);
-    let split = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::Drag(MouseButton::Left),
-        column: section_divider.x + 2,
-        row: 20,
-        modifiers: KeyModifiers::empty(),
-    })]);
-    assert!(state.sidebar_section_split > 0.6);
-    assert!(split.repaint);
-    assert!(!split.resize);
+    assert!(state.hits.sidebar_section_divider.is_empty());
 }
 
 #[test]

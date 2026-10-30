@@ -7,20 +7,21 @@ fn mouse_hits_use_stable_workspace_tab_and_pane_ids() {
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
     state.compose(106, 20).expect("composed frame");
+    let workspace_rect = state.hits.workspaces[0].rect;
 
     let workspace_down =
         state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
-            column: 2,
-            row: 2,
+            column: workspace_rect.x,
+            row: workspace_rect.y,
             modifiers: KeyModifiers::empty(),
         })]);
     assert!(workspace_down.actions.is_empty());
     let workspace =
         state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
             kind: MouseEventKind::Up(MouseButton::Left),
-            column: 2,
-            row: 2,
+            column: workspace_rect.x,
+            row: workspace_rect.y,
             modifiers: KeyModifiers::empty(),
         })]);
     assert!(workspace.requests.is_empty());
@@ -170,12 +171,11 @@ fn grouped_worktrees_render_parent_branch_and_indented_child() {
     state.set_pane_surface(replacement_surface);
     let collapsed = state.compose(106, 20).expect("collapsed worktree group");
     let parent = state.hits.workspaces[0].rect;
-    let status_cell = usize::from(parent.y) * usize::from(collapsed.width)
-        + usize::from(parent.x.saturating_add(1));
-    assert_eq!(
-        collapsed.cells[status_cell].fg,
-        crate::protocol::color_to_u32(state.config.palette.red)
-    );
+    let row_start = usize::from(parent.y) * usize::from(collapsed.width);
+    assert!(collapsed.cells
+        [row_start + usize::from(parent.x)..row_start + usize::from(parent.right())]
+        .iter()
+        .any(|cell| cell.fg == crate::protocol::color_to_u32(state.config.palette.red)));
 
     let mut next = ClientShellInput::default();
     state.record_binding(
@@ -772,7 +772,7 @@ fn agent_sidebar_honors_priority_symbols_tokens_and_stable_hits() {
         crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_2"
     ));
 
-    state.compose(106, 10).expect("short agent sidebar frame");
+    state.compose(106, 8).expect("short agent sidebar frame");
     assert_eq!(
         state
             .hits
@@ -781,24 +781,23 @@ fn agent_sidebar_honors_priority_symbols_tokens_and_stable_hits() {
             .map(|(_, pane_id)| pane_id.as_str()),
         Some("pane_2")
     );
-    let body = state.hits.agent_body;
-    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-        kind: MouseEventKind::ScrollDown,
-        column: body.x,
-        row: body.y,
-        modifiers: KeyModifiers::empty(),
-    })]);
-    state
-        .compose(106, 10)
-        .expect("scrolled agent sidebar frame");
-    assert_eq!(
+    let body = state.hits.workspace_body;
+    for _ in 0..4 {
+        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: body.x,
+            row: body.y,
+            modifiers: KeyModifiers::empty(),
+        })]);
         state
-            .hits
-            .agents
-            .first()
-            .map(|(_, pane_id)| pane_id.as_str()),
-        Some("pane_1")
-    );
+            .compose(106, 8)
+            .expect("scrolled session sidebar frame");
+    }
+    assert!(state
+        .hits
+        .agents
+        .iter()
+        .any(|(_, pane_id)| pane_id == "pane_1"));
 
     state.sidebar_collapsed = true;
     let compact = state.compose(106, 30).expect("compact agent sidebar frame");

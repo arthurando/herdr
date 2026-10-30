@@ -27,9 +27,6 @@ pub(super) fn render_collapsed(
     let reveal = std::mem::take(state.reveal_navigation_workspace);
     for endpoint in state.endpoints {
         total_rows += 1;
-        if state.collapsed_endpoints.contains(&endpoint.endpoint_id) {
-            continue;
-        }
         if let Some(snapshot) = endpoint.snapshot.as_deref() {
             if reveal {
                 if let Some(target) = state
@@ -65,25 +62,20 @@ pub(super) fn render_collapsed(
         }
         let rect = Rect::new(workspace_area.x, y, workspace_area.width, 1);
         let active = &endpoint.endpoint_id == state.active_endpoint_id;
-        let collapsed = state.collapsed_endpoints.contains(&endpoint.endpoint_id);
         if skip > 0 {
             skip -= 1;
         } else {
-            if active && collapsed {
-                buffer.set_style(rect, Style::default().bg(palette.active_row_bg));
-            }
             let label = if endpoint.endpoint_id.is_local() {
                 "L".to_owned()
             } else {
                 (index + 1).to_string()
             };
-            let marker = if collapsed { "▸" } else { "▾" };
             put_text(
                 buffer,
                 rect.x,
                 rect.y,
                 rect.width.saturating_sub(1),
-                &format!("{marker}{label}"),
+                &format!(" {label}"),
                 Style::default().fg(if endpoint.status == ClientEndpointStatus::Online {
                     palette.text
                 } else {
@@ -110,13 +102,10 @@ pub(super) fn render_collapsed(
             hits.machines.push(MachineHit {
                 rect,
                 status_badge,
-                collapse_toggle: Rect::new(rect.x, rect.y, u16::from(rect.width > 1), 1),
+                collapse_toggle: Rect::default(),
                 endpoint_id: endpoint.endpoint_id.clone(),
             });
             y = y.saturating_add(1);
-        }
-        if collapsed {
-            continue;
         }
         let Some(snapshot) = endpoint.snapshot.as_deref() else {
             continue;
@@ -764,17 +753,35 @@ pub(super) fn render_expanded(
             width,
             1,
         );
-        put_right_text(
-            buffer,
-            workspace_area,
-            footer_y,
-            if attention { "● menu" } else { "menu" },
-            Style::default().fg(if attention {
-                palette.accent
-            } else {
-                palette.overlay0
-            }),
-        );
+        if attention {
+            let start_x = workspace_area.right().saturating_sub(6);
+            put_text(
+                buffer,
+                start_x,
+                footer_y,
+                2,
+                "● ",
+                Style::default()
+                    .fg(palette.accent)
+                    .add_modifier(Modifier::BOLD),
+            );
+            put_text(
+                buffer,
+                start_x.saturating_add(2),
+                footer_y,
+                4,
+                "menu",
+                Style::default().fg(palette.overlay0),
+            );
+        } else {
+            put_right_text(
+                buffer,
+                workspace_area,
+                footer_y,
+                "menu",
+                Style::default().fg(palette.overlay0),
+            );
+        }
     }
     if custom_view.is_some() {
         super::endpoint_agents::render_expanded(

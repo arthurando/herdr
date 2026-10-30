@@ -64,22 +64,13 @@ impl ClientShellState {
             return false;
         };
         let endpoint_id = hit.endpoint_id.clone();
-        let collapse_toggle = super::contains(hit.collapse_toggle, point);
-        if !self.sidebar_collapsed && endpoint_id == self.active_endpoint_id {
+        if endpoint_id == self.active_endpoint_id {
             if endpoint_id.is_local() {
                 self.activate_endpoint(endpoint_id, outcome);
             }
             return true;
         }
-        if collapse_toggle || endpoint_id == self.active_endpoint_id {
-            if !self.collapsed_endpoints.remove(&endpoint_id) {
-                self.collapsed_endpoints.insert(endpoint_id.clone());
-            }
-            outcome.repaint = true;
-            if !collapse_toggle && endpoint_id.is_local() {
-                self.activate_endpoint(endpoint_id, outcome);
-            }
-        } else if endpoint_id.is_local() || self.endpoint_is_online(&endpoint_id) {
+        if endpoint_id.is_local() || self.endpoint_is_online(&endpoint_id) {
             outcome.actions.push(ClientShellAction::ActivateEndpoint {
                 endpoint_id,
                 target: None,
@@ -181,11 +172,24 @@ impl ClientShellState {
             action,
             KeybindAction::PreviousAgent | KeybindAction::NextAgent | KeybindAction::FocusAgent(_)
         ) {
-            let agents = super::aggregate_navigation::online_agent_targets(
+            let mut agents = super::aggregate_navigation::online_agent_targets(
                 &self.endpoints,
                 &self.active_endpoint_id,
                 self.config.agent_panel_sort,
             );
+            if self
+                .snapshot
+                .as_deref()
+                .and_then(|snapshot| snapshot.agent_view_label.as_deref())
+                .is_none()
+            {
+                agents.sort_by_key(|target| {
+                    self.endpoints
+                        .iter()
+                        .position(|endpoint| endpoint.endpoint_id == target.endpoint_id)
+                        .unwrap_or(usize::MAX)
+                });
+            }
             if agents.is_empty() {
                 return true;
             }

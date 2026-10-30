@@ -244,6 +244,24 @@ fn local_only_uses_the_same_unified_sidebar() {
 }
 
 #[test]
+fn compact_machine_rows_remain_expanded() {
+    let (mut state, remote) = state_with_remote();
+    state.sidebar_collapsed = true;
+    state.collapsed_endpoints.insert(remote.clone());
+    state.compose(100, 28).unwrap();
+    assert!(state
+        .hits
+        .workspaces
+        .iter()
+        .any(|hit| hit.endpoint_id == remote));
+    assert!(state
+        .hits
+        .machines
+        .iter()
+        .all(|hit| hit.collapse_toggle.is_empty()));
+}
+
+#[test]
 fn priority_sort_reorders_workspaces_within_the_machine() {
     let (mut state, remote) = state_with_remote();
     let mut projected = snapshot();
@@ -593,10 +611,10 @@ fn sidebar_toggle_remains_clickable_with_overflowing_agents() {
             if !saved_machine {
                 state.set_endpoint_catalog(&[]);
             }
-            state.agent_scroll = if scroll_to_bottom { usize::MAX } else { 0 };
-            let frame = state.compose(100, 28).expect("overflowing agent panel");
-            assert!(!state.hits.agent_scrollbar.is_empty());
-            let scroll = state.agent_scroll;
+            state.workspace_scroll = if scroll_to_bottom { usize::MAX } else { 0 };
+            let frame = state.compose(100, 12).expect("overflowing session panel");
+            assert!(!state.hits.workspace_scrollbar.is_empty());
+            let scroll = state.workspace_scroll;
 
             let toggle = state.hits.sidebar_toggle;
             let buffer = frame.to_ratatui_buffer().expect("sidebar buffer");
@@ -613,7 +631,7 @@ fn sidebar_toggle_remains_clickable_with_overflowing_agents() {
             );
             assert!(state.sidebar_collapsed_manual);
             assert!(outcome.repaint && outcome.resize);
-            assert_eq!(state.agent_scroll, scroll);
+            assert_eq!(state.workspace_scroll, scroll);
             assert!(state.chrome_drag.is_none());
 
             state.compose(100, 28).expect("collapsed sidebar");
@@ -646,12 +664,13 @@ fn agent_navigation_reveals_offscreen_targets() {
             KeybindAction::PreviousAgent => (remote, "pane_8"),
             _ => (ClientEndpointId::Local, "pane_1"),
         };
-        state.agent_scroll = if action == KeybindAction::PreviousAgent {
+        state.compose(100, 12).unwrap();
+        state.workspace_scroll = if action == KeybindAction::PreviousAgent {
             0
         } else {
-            state.hits.agent_max_scroll
+            state.hits.workspace_max_scroll
         };
-        state.compose(100, 28).unwrap();
+        state.compose(100, 12).unwrap();
         assert!(!state
             .hits
             .endpoint_agents
@@ -664,7 +683,7 @@ fn agent_navigation_reveals_offscreen_targets() {
         if endpoint_id != state.active_endpoint_id {
             assert!(state.activate_endpoint_projection(&endpoint_id));
         }
-        state.compose(100, 28).unwrap();
+        state.compose(100, 12).unwrap();
         assert!(
             state
                 .hits
@@ -851,8 +870,9 @@ fn local_agent_click_can_cancel_a_pending_remote_switch() {
 }
 
 #[test]
-fn aggregate_agent_scroll_still_clamps_when_rows_shrink_on_activation() {
+fn unified_session_scroll_clamps_when_rows_shrink_on_activation() {
     let (mut state, remote) = state_with_scrollable_agents();
+    state.workspace_scroll = usize::MAX;
     for endpoint_id in [ClientEndpointId::Local, remote.clone()] {
         let mut projection = state
             .endpoints
@@ -874,8 +894,8 @@ fn aggregate_agent_scroll_still_clamps_when_rows_shrink_on_activation() {
     }
     assert!(state.activate_endpoint_projection(&remote));
     state.compose(100, 28).unwrap();
-    assert_eq!(state.agent_scroll, 0);
-    assert_eq!(state.hits.agent_max_scroll, 0);
+    assert_eq!(state.workspace_scroll, 0);
+    assert_eq!(state.hits.workspace_max_scroll, 0);
     assert_eq!(state.hits.endpoint_agents.len(), 2);
 }
 
@@ -1072,7 +1092,7 @@ fn sidebar_renders_local_and_saved_ssh_endpoints_with_status() {
     );
 
     state.sidebar_collapsed = true;
-    let frame = state.compose(100, 28).expect("collapsed endpoint frame");
+    let frame = state.compose(100, 28).expect("endpoint stays expanded");
     let local = state
         .hits
         .machines
@@ -1424,7 +1444,7 @@ fn expanded_machine_sidebar_applies_space_row_gap_within_each_machine() {
     );
 
     state.workspace_scroll = usize::MAX;
-    state.compose(100, 18).expect("scrolled endpoint frame");
+    state.compose(100, 14).expect("scrolled endpoint frame");
     let metrics = state
         .hits
         .workspace_scroll_metrics
@@ -1492,10 +1512,15 @@ fn active_workspace_is_the_only_highlight_when_machine_is_expanded() {
         .expect("remote machine hit")
         .rect;
     let buffer = frame.to_ratatui_buffer().expect("frame should reconstruct");
-    assert_eq!(
+    assert_ne!(
         buffer[(machine.x, machine.y)].bg,
         state.config.palette.active_row_bg
     );
+    assert!(state
+        .hits
+        .workspaces
+        .iter()
+        .any(|hit| hit.endpoint_id == endpoint_id));
 }
 
 #[test]
@@ -1972,7 +1997,7 @@ fn selected_position_sort_uses_public_tab_and_pane_numbers() {
 }
 
 #[test]
-fn aggregate_priority_uses_client_observed_recency_across_machines() {
+fn priority_order_keeps_machine_groups_and_navigation_aligned() {
     use crate::api::schema::AgentStatus;
     use crate::config::AgentSidebarToken;
 
@@ -2021,16 +2046,16 @@ fn aggregate_priority_uses_client_observed_recency_across_machines() {
     state.set_endpoint_snapshot(&endpoint_id, Box::new(remote.clone()));
     let text = frame_text(&mut state);
     assert!(
-        text.find("Build · remote agent").expect("remote agent")
-            < text.find("Local · local agent").expect("local agent")
+        text.find("Local · local agent").expect("local agent")
+            < text.find("Build · remote agent").expect("remote agent")
     );
 
     remote.agents = vec![agent("remote agent", AgentStatus::Idle, 3)];
     state.set_endpoint_snapshot(&endpoint_id, Box::new(remote));
     let text = frame_text(&mut state);
     assert!(
-        text.find("Build · remote agent").expect("remote agent")
-            < text.find("Local · local agent").expect("local agent")
+        text.find("Local · local agent").expect("local agent")
+            < text.find("Build · remote agent").expect("remote agent")
     );
     let mut outcome = ClientShellInput::default();
     assert!(
@@ -2038,10 +2063,8 @@ fn aggregate_priority_uses_client_observed_recency_across_machines() {
     );
     assert!(matches!(
         outcome.actions.as_slice(),
-        [ClientShellAction::ActivateEndpoint {
-            endpoint_id: activated,
-            target: Some(ClientEndpointFocusTarget::Pane(pane_id)),
-        }] if activated == &endpoint_id && pane_id == "pane_1"
+        [ClientShellAction::ActivateEndpoint { endpoint_id: activated, target: Some(ClientEndpointFocusTarget::Pane(pane_id)) }]
+            if activated == &ClientEndpointId::Local && pane_id == "pane_1"
     ));
 }
 
@@ -2170,83 +2193,33 @@ fn reconnecting_local_selection_still_reaches_the_runtime() {
 }
 
 #[test]
-fn machine_arrow_toggles_inactive_machine_without_switching() {
-    for sidebar_collapsed in [false, true] {
-        for status in [
-            ClientEndpointStatus::Online,
-            ClientEndpointStatus::Reconnecting,
-        ] {
-            let (mut state, remote_id) = state_with_remote();
-            let mut other_profile = remote_profile();
-            other_profile.id = ProfileId::parse("1123456789abcdef0123456789abcdef").unwrap();
-            let other_id = ClientEndpointId::Ssh(other_profile.id.clone());
-            state.set_endpoint_catalog(&[remote_profile(), other_profile]);
-            state.set_endpoint_status(&other_id, ClientEndpointStatus::Online);
-            state.set_endpoint_snapshot(&other_id, Box::new(snapshot()));
-            state.set_endpoint_status(&remote_id, status);
-            state.sidebar_collapsed = sidebar_collapsed;
-
-            for collapsed in [true, false] {
-                let frame = state.compose(100, 28).expect("three machine frame");
-                let machine = state
-                    .hits
-                    .machines
-                    .iter()
-                    .find(|hit| hit.endpoint_id == remote_id)
-                    .expect("remote machine")
-                    .rect;
-                let column = machine.x + u16::from(!sidebar_collapsed);
-                let buffer = frame.to_ratatui_buffer().expect("frame buffer");
-                assert_eq!(
-                    buffer[(column, machine.y)].symbol(),
-                    if collapsed { "▾" } else { "▸" }
-                );
-                let outcome = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
-                    kind: MouseEventKind::Down(MouseButton::Left),
-                    column,
-                    row: machine.y,
-                    modifiers: KeyModifiers::empty(),
-                })]);
-                assert!(
-                    outcome.actions.is_empty(),
-                    "collapse must not switch machines"
-                );
-                assert!(outcome.requests.is_empty());
-                assert!(outcome.repaint);
-                assert_eq!(state.active_endpoint_id, ClientEndpointId::Local);
-                assert_eq!(state.snapshot.as_ref().unwrap().boot_id, "boot-1");
-                assert_eq!(
-                    state
-                        .snapshot
-                        .as_ref()
-                        .unwrap()
-                        .focused_workspace_id
-                        .as_deref(),
-                    Some("ws_1")
-                );
-                assert_eq!(state.collapsed_endpoints.contains(&remote_id), collapsed);
-                assert!(!state.collapsed_endpoints.contains(&ClientEndpointId::Local));
-                assert!(!state.collapsed_endpoints.contains(&other_id));
-                assert!(state.endpoint_error.is_none());
-
-                state.compose(100, 28).expect("toggled machine frame");
-                assert_eq!(
-                    state
-                        .hits
-                        .workspaces
-                        .iter()
-                        .any(|hit| hit.endpoint_id == remote_id),
-                    !collapsed
-                );
-                for endpoint_id in [&ClientEndpointId::Local, &other_id] {
-                    assert!(state
-                        .hits
-                        .workspaces
-                        .iter()
-                        .any(|hit| &hit.endpoint_id == endpoint_id));
-                }
-            }
-        }
+fn machine_click_activates_without_collapsing_sessions() {
+    for compact in [false, true] {
+        let (mut state, remote) = state_with_remote();
+        state.sidebar_collapsed = compact;
+        state.compose(100, 28).unwrap();
+        let machine = state
+            .hits
+            .machines
+            .iter()
+            .find(|hit| hit.endpoint_id == remote)
+            .unwrap()
+            .rect;
+        let outcome = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: machine.x,
+            row: machine.y,
+            modifiers: KeyModifiers::empty(),
+        })]);
+        assert!(
+            matches!(outcome.actions.as_slice(), [ClientShellAction::ActivateEndpoint { endpoint_id, .. }] if endpoint_id == &remote)
+        );
+        state.compose(100, 28).unwrap();
+        assert!(state
+            .hits
+            .workspaces
+            .iter()
+            .any(|hit| hit.endpoint_id == remote));
     }
 }
 
@@ -2607,8 +2580,8 @@ fn navigator_uses_machine_parents_only_for_federated_clients() {
     local.set_snapshot(Box::new(snapshot()));
     local.set_pane_surface(surface());
     let frame = local.compose(100, 28).expect("local-only sidebar");
-    assert!(local.hits.machines.is_empty());
-    assert!(!frame
+    assert_eq!(local.hits.machines.len(), 1);
+    assert!(frame
         .cells
         .chunks(frame.width as usize)
         .map(|row| {
@@ -3203,12 +3176,20 @@ fn terminal_sessions_render_machine_labels_and_route_click_to_remote() {
         .cloned()
         .expect("remote terminal hit target");
     assert_eq!(pane, "pane_1");
-    let click = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: rect.x,
-        row: rect.y,
-        modifiers: KeyModifiers::empty(),
-    })]);
+    let click = state.handle_raw_events(vec![
+        RawInputEvent::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: rect.x,
+            row: rect.y,
+            modifiers: KeyModifiers::empty(),
+        }),
+        RawInputEvent::Mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: rect.x,
+            row: rect.y,
+            modifiers: KeyModifiers::empty(),
+        }),
+    ]);
     assert!(click.actions.iter().any(|action| matches!(action, ClientShellAction::ActivateEndpoint { endpoint_id, target: Some(ClientEndpointFocusTarget::Pane(pane_id)) } if endpoint_id == &remote && pane_id == "pane_1")));
 }
 

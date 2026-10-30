@@ -164,6 +164,7 @@ impl ClientShellState {
                                     .unwrap_or(0);
                             }
                             self.workspace_scroll = index;
+                            self.reveal_focused_workspace = false;
                             return;
                         }
                         index += 1 + if matching.len() > 1 {
