@@ -122,7 +122,30 @@ impl ClientShellState {
                             .get(&endpoint.endpoint_id)
                             .unwrap_or(&empty)
                     };
+                    let mut groups: Vec<Vec<WorkspaceEntry>> = Vec::new();
                     for entry in super::sidebar::workspace_entries(snapshot, collapsed) {
+                        if !entry.indented || groups.is_empty() {
+                            groups.push(Vec::new());
+                        }
+                        groups.last_mut().unwrap().push(entry);
+                    }
+                    if self.config.agent_panel_sort == crate::config::AgentPanelSortConfig::Priority
+                    {
+                        groups.sort_by_key(|group| {
+                            group
+                                .iter()
+                                .filter_map(|entry| {
+                                    let workspace = &snapshot.workspaces[entry.index];
+                                    agents.iter().position(|row| {
+                                        row.endpoint_id == endpoint.endpoint_id
+                                            && row.workspace_id == workspace.workspace_id
+                                    })
+                                })
+                                .min()
+                                .unwrap_or(usize::MAX)
+                        });
+                    }
+                    for entry in groups.into_iter().flatten() {
                         let workspace = &snapshot.workspaces[entry.index];
                         let matching: Vec<_> = agents
                             .iter()

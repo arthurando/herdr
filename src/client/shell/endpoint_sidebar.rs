@@ -271,6 +271,30 @@ pub(super) fn render_expanded(
             .fg(palette.overlay0)
             .add_modifier(Modifier::BOLD),
     );
+    if custom_view.is_none() && config.mouse_capture {
+        let label = match config.agent_panel_sort {
+            crate::config::AgentPanelSortConfig::Spaces => "grouped",
+            crate::config::AgentPanelSortConfig::Priority => "priority",
+        };
+        let width = display_width(label).min(workspace_area.width.saturating_sub(11));
+        let rect = Rect::new(
+            workspace_area.right().saturating_sub(width + 1),
+            workspace_area.y,
+            width,
+            1,
+        );
+        hits.agent_sort_toggle = rect;
+        put_text(
+            buffer,
+            rect.x,
+            rect.y,
+            rect.width,
+            label,
+            Style::default()
+                .fg(palette.overlay0)
+                .add_modifier(Modifier::BOLD),
+        );
+    }
 
     let empty_collapsed_groups = HashSet::new();
     let agents =
@@ -297,7 +321,32 @@ pub(super) fn render_expanded(
         if let Some(snapshot) = endpoint.snapshot.as_deref() {
             let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
                 .unwrap_or(&empty_collapsed_groups);
-            for entry in super::sidebar::workspace_entries(snapshot, collapsed_groups) {
+            let entries = super::sidebar::workspace_entries(snapshot, collapsed_groups);
+            let mut groups: Vec<Vec<WorkspaceEntry>> = Vec::new();
+            for entry in entries {
+                if !entry.indented || groups.is_empty() {
+                    groups.push(Vec::new());
+                }
+                groups.last_mut().unwrap().push(entry);
+            }
+            if custom_view.is_none()
+                && config.agent_panel_sort == crate::config::AgentPanelSortConfig::Priority
+            {
+                groups.sort_by_key(|group| {
+                    group
+                        .iter()
+                        .filter_map(|entry| {
+                            let workspace = &snapshot.workspaces[entry.index];
+                            agents_by_workspace
+                                .get(&(&endpoint.endpoint_id, workspace.workspace_id.as_str()))
+                                .and_then(|items| items.first())
+                                .copied()
+                        })
+                        .min()
+                        .unwrap_or(usize::MAX)
+                });
+            }
+            for entry in groups.into_iter().flatten() {
                 let workspace_id = &snapshot.workspaces[entry.index].workspace_id;
                 let matching =
                     agents_by_workspace.get(&(&endpoint.endpoint_id, workspace_id.as_str()));
@@ -532,6 +581,24 @@ pub(super) fn render_expanded(
                 });
                 let dragged = endpoint_active
                     && state.dragged_workspace_id == Some(workspace.workspace_id.as_str());
+                if selected {
+                    let background = if palette.selection_bg == ratatui::style::Color::Reset {
+                        palette.active_row_bg
+                    } else {
+                        palette.selection_bg
+                    };
+                    buffer.set_style(rect, Style::default().bg(background));
+                } else if dragged {
+                    buffer.set_style(rect, Style::default().bg(palette.surface1));
+                } else if endpoint_active && workspace.focused {
+                    buffer.set_style(
+                        rect,
+                        Style::default().bg(super::sidebar::workspace_active_background(
+                            palette,
+                            state.selected_workspace_id.is_some(),
+                        )),
+                    );
+                }
                 super::sidebar::render_workspace_rows(
                     buffer,
                     nested,

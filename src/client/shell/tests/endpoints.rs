@@ -200,6 +200,42 @@ fn local_only_uses_the_same_unified_sidebar() {
 }
 
 #[test]
+fn priority_sort_reorders_workspaces_within_the_machine() {
+    let (mut state, remote) = state_with_remote();
+    let mut projected = snapshot();
+    projected.boot_id = "remote-boot".into();
+    let mut second_workspace = projected.workspaces[0].clone();
+    second_workspace.workspace_id = "ws_2".into();
+    second_workspace.label = "urgent".into();
+    projected.workspaces.push(second_workspace);
+    let mut second_pane = projected.panes[0].clone();
+    second_pane.workspace_id = "ws_2".into();
+    second_pane.pane_id = "pane_2".into();
+    projected.panes.push(second_pane);
+    let first = agent("first", AgentStatus::Idle, 1);
+    let mut second = agent("second", AgentStatus::Blocked, 2);
+    second.workspace_id = "ws_2".into();
+    second.pane_id = "pane_2".into();
+    projected.agents = vec![first, second];
+    state.set_endpoint_snapshot(&remote, Box::new(projected));
+    state.config.agent_panel_sort = crate::config::AgentPanelSortConfig::Priority;
+    state.compose(100, 28).unwrap();
+    let first = state
+        .hits
+        .workspaces
+        .iter()
+        .find(|hit| hit.endpoint_id == remote && hit.workspace_id == "ws_1")
+        .unwrap();
+    let second = state
+        .hits
+        .workspaces
+        .iter()
+        .find(|hit| hit.endpoint_id == remote && hit.workspace_id == "ws_2")
+        .unwrap();
+    assert!(second.rect.y < first.rect.y);
+}
+
+#[test]
 fn archive_toggle_opens_visible_panel_and_reports_unsupported_server() {
     let (mut state, _) = state_with_remote();
     state.set_endpoint_methods(Some(vec![]));
