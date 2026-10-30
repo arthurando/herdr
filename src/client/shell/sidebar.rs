@@ -758,29 +758,9 @@ pub(in crate::client::shell) fn render_workspace_rows(
             x = x.saturating_add(3);
         }
         let highlighted = focused || dragged;
-        let rainbow = if focused || selected {
-            [
-                (145, 25, 40),
-                (137, 65, 0),
-                (102, 83, 0),
-                (0, 104, 64),
-                (0, 78, 145),
-                (93, 45, 139),
-            ]
-        } else {
-            [
-                (255, 116, 126),
-                (255, 175, 90),
-                (244, 216, 100),
-                (120, 220, 158),
-                (120, 190, 255),
-                (207, 157, 255),
-            ]
-        };
         let workspace_style = Style::default()
-            .fg(if let Some(index) = rainbow_index {
-                let (r, g, b) = rainbow[index % rainbow.len()];
-                ratatui::style::Color::Rgb(r, g, b)
+            .fg(if rainbow_index.is_some() {
+                ratatui::style::Color::White
             } else if highlighted {
                 palette.text
             } else {
@@ -824,7 +804,7 @@ pub(in crate::client::shell) fn render_workspace_rows(
     } else {
         None
     };
-    if let Some(background) = background {
+    if let Some(background) = background.filter(|_| rainbow_index.is_none()) {
         for y in area.y..area.bottom() {
             for x in area.x..area.right() {
                 buffer[(x, y)].set_bg(background);

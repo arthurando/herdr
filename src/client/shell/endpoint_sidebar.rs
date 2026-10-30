@@ -1,5 +1,6 @@
 use super::render::{display_width, put_right_text, put_text, ShellRenderState};
 use super::*;
+use ratatui::style::Color;
 
 fn collapsed_groups_for_endpoint<'a>(
     state: &'a ShellRenderState<'_>,
@@ -442,6 +443,7 @@ pub(super) fn render_expanded(
                 Row::Workspace { .. } | Row::Agent(_),
                 Some(Row::Workspace { .. } | Row::Agent(_)),
             ) => 1,
+            (_, Some(Row::Endpoint(_))) => 1,
             _ => 0,
         })
         .collect::<Vec<_>>();
@@ -610,31 +612,34 @@ pub(super) fn render_expanded(
                     rect.width.saturating_sub(2),
                     rect.height.saturating_sub(2 * padding),
                 );
-                buffer.set_style(rect, Style::default().bg(palette.panel_bg));
                 let endpoint_active = &endpoint.endpoint_id == state.active_endpoint_id;
                 let selected = state.selected_workspace_id.is_some_and(|target| {
                     target.matches(&endpoint.endpoint_id, &workspace.workspace_id)
                 });
                 let dragged = endpoint_active
                     && state.dragged_workspace_id == Some(workspace.workspace_id.as_str());
-                if selected {
-                    let background = if palette.selection_bg == ratatui::style::Color::Reset {
-                        palette.active_row_bg
-                    } else {
-                        palette.selection_bg
-                    };
-                    buffer.set_style(rect, Style::default().bg(background));
-                } else if dragged {
-                    buffer.set_style(rect, Style::default().bg(palette.surface1));
-                } else if endpoint_active && workspace.focused {
-                    buffer.set_style(
-                        rect,
-                        Style::default().bg(super::sidebar::workspace_active_background(
-                            palette,
-                            state.selected_workspace_id.is_some(),
-                        )),
-                    );
-                }
+                // Terminals do not support per-cell alpha. Dark, tinted RGB gives
+                // the same quiet effect while keeping white text readable.
+                let colours = [
+                    (92, 42, 48),
+                    (92, 57, 35),
+                    (81, 69, 31),
+                    (35, 78, 54),
+                    (35, 62, 91),
+                    (69, 46, 91),
+                ];
+                let (r, g, b) = colours[row_index % colours.len()];
+                let lift = if selected || (endpoint_active && workspace.focused) {
+                    22
+                } else {
+                    0
+                };
+                let background = if dragged {
+                    palette.surface1
+                } else {
+                    Color::Rgb(r + lift, g + lift, b + lift)
+                };
+                buffer.set_style(rect, Style::default().bg(background));
                 if let Some(agent) = single_agent {
                     super::agent_sidebar::render_agent_row(buffer, nested, &agent.agent, config);
                 } else {
@@ -863,13 +868,12 @@ fn render_endpoint_row(
         rect.width.saturating_sub(signal_width.saturating_add(1)),
         &format!(" {marker} {}", endpoint.label),
         Style::default()
-            .fg(
-                if matches!(endpoint.status, ClientEndpointStatus::Disabled) {
-                    palette.overlay0
-                } else {
-                    palette.text
-                },
-            )
+            .fg(match palette.panel_bg {
+                Color::Rgb(r, g, b) if u16::from(r) + u16::from(g) + u16::from(b) > 540 => {
+                    Color::Black
+                }
+                _ => Color::White,
+            })
             .add_modifier(if highlighted {
                 Modifier::BOLD | Modifier::UNDERLINED
             } else {

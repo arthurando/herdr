@@ -1415,7 +1415,7 @@ fn expanded_machine_sidebar_applies_space_row_gap_within_each_machine() {
         .find(|hit| hit.endpoint_id == remote_id)
         .expect("remote machine");
     assert_eq!(local_workspaces[0].rect.y, local_machine.rect.bottom());
-    assert_eq!(remote_machine.rect.y, local_workspaces[1].rect.bottom());
+    assert_eq!(remote_machine.rect.y, local_workspaces[1].rect.bottom() + 1);
 
     let remote_workspaces = state
         .hits
@@ -1488,9 +1488,13 @@ fn active_workspace_is_the_only_highlight_when_machine_is_expanded() {
         buffer[(machine.x, machine.y)].bg,
         state.config.palette.active_row_bg
     );
-    assert_eq!(
+    assert_ne!(
         buffer[(workspace.x + 2, workspace.y)].bg,
-        state.config.palette.active_row_bg
+        buffer[(machine.x, machine.y)].bg
+    );
+    assert_eq!(
+        buffer[(machine.x + 2, machine.y)].fg,
+        ratatui::style::Color::White
     );
 
     state.collapsed_endpoints.insert(endpoint_id.clone());
