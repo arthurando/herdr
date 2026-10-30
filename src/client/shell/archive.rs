@@ -197,14 +197,12 @@ mod tests {
         let mut buffer = Buffer::empty(rect);
         let mut hits = ShellHitMap::default();
         render(&mut buffer, rect, &panel, &config.palette, &mut hits);
-        assert!(
-            buffer
-                .content
-                .iter()
-                .map(|cell| cell.symbol())
-                .collect::<String>()
-                .contains("CRM cleanup")
-        );
+        assert!(buffer
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+            .contains("CRM cleanup"));
         assert_eq!(hits.archive_rows.len(), 1);
         assert_eq!(hits.archive_rows[0].1, "one");
     }

@@ -200,6 +200,35 @@ fn local_only_uses_the_same_unified_sidebar() {
 }
 
 #[test]
+fn archive_toggle_opens_visible_panel_and_reports_unsupported_server() {
+    let (mut state, _) = state_with_remote();
+    state.set_endpoint_methods(Some(vec![]));
+    state.compose(100, 28).unwrap();
+    let toggle = state.hits.archive_toggle;
+    assert!(!toggle.is_empty());
+    state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: toggle.x,
+        row: toggle.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    let frame = state.compose(100, 28).unwrap();
+    let text = frame
+        .cells
+        .chunks(frame.width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("Archived sessions"));
+    assert!(text.contains("Server update required"));
+    assert_eq!(state.hits.global_launcher.y, 27);
+}
+
+#[test]
 fn workspace_navigation_waits_for_the_target_presentation_fence() {
     use crate::client::endpoint::{EndpointNegotiation, EndpointRegistry};
     use crate::client::endpoint_commands::EndpointCommands;
