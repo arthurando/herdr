@@ -35,11 +35,19 @@ impl ClientShellState {
         press: ClientWorkspacePress,
         outcome: &mut ClientShellInput,
     ) {
-        self.focus_or_activate(
-            press.endpoint_id,
-            ClientEndpointFocusTarget::Workspace(press.workspace_id),
-            outcome,
-        );
+        let point = (press.start_column, press.start_row);
+        let pane = self
+            .hits
+            .endpoint_agents
+            .iter()
+            .find(|(rect, endpoint, _)| {
+                endpoint == &press.endpoint_id && super::contains(*rect, point)
+            })
+            .map(|(_, _, pane)| pane.clone());
+        let target = pane
+            .map(ClientEndpointFocusTarget::Pane)
+            .unwrap_or(ClientEndpointFocusTarget::Workspace(press.workspace_id));
+        self.focus_or_activate(press.endpoint_id, target, outcome);
     }
 
     pub(super) fn handle_endpoint_machine_click(

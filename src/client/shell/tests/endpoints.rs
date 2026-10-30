@@ -177,6 +177,50 @@ fn unified_sidebar_reveals_keyboard_selected_pane() {
 }
 
 #[test]
+fn unified_scrollbar_moves_the_session_list() {
+    let (mut state, _) = state_with_scrollable_agents();
+    state.compose(100, 20).unwrap();
+    assert!(!state.hits.workspace_scrollbar.is_empty());
+    let body = state.hits.workspace_body;
+    state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column: body.x,
+        row: body.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert!(state.workspace_scroll > 0);
+}
+
+#[test]
+fn single_session_click_routes_to_its_pane_on_release() {
+    let (mut state, remote) = state_with_remote();
+    state.compose(100, 28).unwrap();
+    let rect = state
+        .hits
+        .endpoint_agents
+        .iter()
+        .find(|(_, endpoint, _)| endpoint == &remote)
+        .unwrap()
+        .0;
+    for kind in [
+        MouseEventKind::Down(MouseButton::Left),
+        MouseEventKind::Up(MouseButton::Left),
+    ] {
+        let result = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+            kind,
+            column: rect.x,
+            row: rect.y,
+            modifiers: KeyModifiers::empty(),
+        })]);
+        if kind == MouseEventKind::Up(MouseButton::Left) {
+            assert!(result.actions.iter().any(|action| matches!(action,
+                ClientShellAction::ActivateEndpoint { endpoint_id, target: Some(ClientEndpointFocusTarget::Pane(pane_id)) }
+                if endpoint_id == &remote && pane_id == "pane_1")));
+        }
+    }
+}
+
+#[test]
 fn local_only_uses_the_same_unified_sidebar() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));

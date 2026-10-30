@@ -306,6 +306,7 @@ pub(super) fn render_expanded(
             .or_insert_with(Vec::new)
             .push(index);
     }
+    let custom_agent_rows = config.agents != crate::config::AgentsSidebarConfig::default();
 
     enum Row {
         Endpoint(usize),
@@ -398,6 +399,22 @@ pub(super) fn render_expanded(
                     .as_deref()
                     .and_then(|snapshot| {
                         let workspace = snapshot.workspaces.get(entry.index)?;
+                        if custom_view.is_none() && custom_agent_rows {
+                            if let Some(items) = agents_by_workspace
+                                .get(&(&endpoint.endpoint_id, workspace.workspace_id.as_str()))
+                                .filter(|items| items.len() == 1)
+                            {
+                                return Some(
+                                    agents[items[0]]
+                                        .agent
+                                        .rows
+                                        .len()
+                                        .max(1)
+                                        .min(u16::MAX as usize)
+                                        as u16,
+                                );
+                            }
+                        }
                         Some(
                             super::sidebar::workspace_rows(
                                 workspace,
@@ -564,7 +581,19 @@ pub(super) fn render_expanded(
                     entry.indented,
                     &config.spaces,
                 );
-                let height = (tokens.len().max(1).min(u16::MAX as usize) as u16).min(body.height);
+                let single_agent = if custom_view.is_none() && custom_agent_rows {
+                    agents_by_workspace
+                        .get(&(&endpoint.endpoint_id, workspace.workspace_id.as_str()))
+                        .filter(|items| items.len() == 1)
+                        .map(|items| &agents[items[0]])
+                } else {
+                    None
+                };
+                let height = (single_agent
+                    .map_or(tokens.len(), |agent| agent.agent.rows.len())
+                    .max(1)
+                    .min(u16::MAX as usize) as u16)
+                    .min(body.height);
                 if y.saturating_add(height) > body.bottom() {
                     break;
                 }
@@ -599,20 +628,24 @@ pub(super) fn render_expanded(
                         )),
                     );
                 }
-                super::sidebar::render_workspace_rows(
-                    buffer,
-                    nested,
-                    status,
-                    config.status_indicators,
-                    entry,
-                    tokens,
-                    endpoint_active && workspace.focused,
-                    selected,
-                    state.selected_workspace_id.is_some(),
-                    dragged,
-                    palette,
-                    Some(row_index),
-                );
+                if let Some(agent) = single_agent {
+                    super::agent_sidebar::render_agent_row(buffer, nested, &agent.agent, config);
+                } else {
+                    super::sidebar::render_workspace_rows(
+                        buffer,
+                        nested,
+                        status,
+                        config.status_indicators,
+                        entry,
+                        tokens,
+                        endpoint_active && workspace.focused,
+                        selected,
+                        state.selected_workspace_id.is_some(),
+                        dragged,
+                        palette,
+                        Some(row_index),
+                    );
+                }
                 if endpoint.status != ClientEndpointStatus::Online {
                     buffer.set_style(
                         rect,
