@@ -249,7 +249,9 @@ mod tests {
         assert!(
             matches!(&request.method, Method::WorkspaceArchiveResume(params) if params.id == "archive-1")
         );
-        state.active_endpoint_id = ClientEndpointId::Ssh("different".into());
+        state.active_endpoint_id = ClientEndpointId::Ssh(
+            crate::client::endpoint::ProfileId::parse("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),
+        );
         let mut stale = ClientShellInput::default();
         state.resume_archive("archive-1".into(), &mut stale);
         assert!(stale.actions.is_empty());
