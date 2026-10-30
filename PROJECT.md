@@ -9,6 +9,8 @@ repository; this is a user-owned fork.
 
 - Explicit workspace, final tab, and final pane closes save a per-server archive
   before closing. Archives retain the displayed workspace name and snapshot.
+  Other explicit pane and tab closes save each affected pane as a separate
+  archive that resumes into a new workspace.
   `workspace.archive.list` marks entries resumable only when every saved pane has
   a supported exact native agent identity. `workspace.archive.resume` rejects
   active duplicates and retains the archive. Other processes and historical
