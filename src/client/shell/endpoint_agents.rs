@@ -83,6 +83,9 @@ pub(super) fn render_expanded(
             }
             hits.endpoint_agents
                 .push((rect, row.endpoint_id.clone(), row.agent.pane_id.clone()));
+            if endpoints.len() == 1 && &row.endpoint_id == active_endpoint_id {
+                hits.agents.push((rect, row.agent.pane_id.clone()));
+            }
         },
     );
 }

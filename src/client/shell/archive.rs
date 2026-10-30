@@ -161,6 +161,9 @@ impl ClientShellState {
         match result {
             Ok(ResponseResult::ArchiveList { entries }) => self.archive.entries = entries,
             Ok(_) => self.archive.message = Some(" Archive unavailable".into()),
+            Err(error) if error.code.as_deref() == Some("archive_disabled") => {
+                self.archive.message = Some(" Archive disabled".into())
+            }
             Err(_) => self.archive.message = Some(" Archive unavailable".into()),
         }
     }
@@ -191,6 +194,28 @@ impl ClientShellState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disabled_archive_reports_its_state() {
+        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+        state.set_snapshot(Box::new(super::super::tests::snapshot()));
+        state.set_endpoint_methods(Some(vec!["workspace.archive.list".into()]));
+        let mut outcome = ClientShellInput::default();
+        state.toggle_archive(&mut outcome);
+        let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
+            panic!("list request")
+        };
+        let id = request.id.clone();
+        state.handle_endpoint_result(
+            "boot-1",
+            &id,
+            Err(ClientShellEndpointError {
+                code: Some("archive_disabled".into()),
+                message: "disabled".into(),
+            }),
+        );
+        assert_eq!(state.archive.message.as_deref(), Some(" Archive disabled"));
+    }
 
     #[test]
     fn old_list_response_cannot_replace_a_new_request() {
