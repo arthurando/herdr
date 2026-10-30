@@ -7,6 +7,8 @@ use crate::api::schema::{
 pub(super) struct ArchivePanel {
     open: bool,
     loading: bool,
+    endpoint_id: Option<ClientEndpointId>,
+    boot_id: Option<String>,
     message: Option<String>,
     entries: Vec<ArchiveEntryInfo>,
     pub(super) scroll: usize,
@@ -107,6 +109,11 @@ impl ClientShellState {
         } else {
             self.archive = ArchivePanel {
                 open: true,
+                endpoint_id: Some(self.active_endpoint_id.clone()),
+                boot_id: self
+                    .snapshot
+                    .as_ref()
+                    .map(|snapshot| snapshot.boot_id.clone()),
                 ..Default::default()
             };
             let method = Method::WorkspaceArchiveList(EmptyParams {});
@@ -141,11 +148,17 @@ impl ClientShellState {
     }
 
     pub(super) fn resume_archive(&mut self, id: String, outcome: &mut ClientShellInput) {
-        if !self
-            .archive
-            .entries
-            .iter()
-            .any(|entry| entry.id == id && entry.resumable)
+        if self.archive.endpoint_id.as_ref() != Some(&self.active_endpoint_id)
+            || self.archive.boot_id.as_deref()
+                != self
+                    .snapshot
+                    .as_ref()
+                    .map(|snapshot| snapshot.boot_id.as_str())
+            || !self
+                .archive
+                .entries
+                .iter()
+                .any(|entry| entry.id == id && entry.resumable)
         {
             return;
         }
@@ -238,5 +251,9 @@ mod tests {
         assert!(
             matches!(&request.method, Method::WorkspaceArchiveResume(params) if params.id == "archive-1")
         );
+        state.active_endpoint_id = ClientEndpointId::Ssh("different".into());
+        let mut stale = ClientShellInput::default();
+        state.resume_archive("archive-1".into(), &mut stale);
+        assert!(stale.actions.is_empty());
     }
 }
