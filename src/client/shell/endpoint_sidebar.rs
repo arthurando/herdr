@@ -517,9 +517,9 @@ pub(super) fn render_expanded(
                     break;
                 }
                 let rect = Rect::new(
-                    body.x.saturating_add(3),
+                    body.x.saturating_add(1),
                     y,
-                    content_width.saturating_sub(3),
+                    content_width.saturating_sub(1),
                     height,
                 );
                 super::agent_sidebar::render_agent_row(buffer, rect, &agent.agent, config);
