@@ -11,6 +11,7 @@ pub(super) struct ArchivePanel {
     boot_id: Option<String>,
     message: Option<String>,
     entries: Vec<ArchiveEntryInfo>,
+    list_request_id: Option<String>,
     pub(super) scroll: usize,
 }
 
@@ -122,11 +123,15 @@ impl ClientShellState {
             } else if !self.supports_endpoint_method(&method) {
                 self.archive.message = Some(" Server update required".into());
             } else {
+                let request_id = format!("client-shell:{}", self.next_request_id);
                 self.archive.loading = self.push_endpoint_method_with_kind(
                     method,
                     PendingEndpointKind::ArchiveList,
                     outcome,
                 );
+                if self.archive.loading {
+                    self.archive.list_request_id = Some(request_id);
+                }
                 if !self.archive.loading {
                     self.archive.message = Some(" Archive unavailable".into());
                 }
@@ -137,8 +142,21 @@ impl ClientShellState {
 
     pub(super) fn complete_archive_list(
         &mut self,
+        request_id: &str,
         result: Result<ResponseResult, ClientShellEndpointError>,
     ) {
+        if !self.archive.open
+            || self.archive.list_request_id.as_deref() != Some(request_id)
+            || self.archive.endpoint_id.as_ref() != Some(&self.active_endpoint_id)
+            || self.archive.boot_id.as_deref()
+                != self
+                    .snapshot
+                    .as_deref()
+                    .map(|snapshot| snapshot.boot_id.as_str())
+        {
+            return;
+        }
+        self.archive.list_request_id = None;
         self.archive.loading = false;
         match result {
             Ok(ResponseResult::ArchiveList { entries }) => self.archive.entries = entries,
@@ -173,6 +191,34 @@ impl ClientShellState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_list_response_cannot_replace_a_new_request() {
+        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+        state.set_snapshot(Box::new(super::super::tests::snapshot()));
+        state.set_endpoint_methods(Some(vec!["workspace.archive.list".into()]));
+        let mut first = ClientShellInput::default();
+        state.toggle_archive(&mut first);
+        let [ClientShellAction::Endpoint { request, .. }] = &first.actions[..] else {
+            panic!("first list")
+        };
+        let old_id = request.id.clone();
+        state.toggle_archive(&mut ClientShellInput::default());
+        state.toggle_archive(&mut ClientShellInput::default());
+        state.handle_endpoint_result(
+            "boot-1",
+            &old_id,
+            Ok(ResponseResult::ArchiveList {
+                entries: vec![ArchiveEntryInfo {
+                    id: "old".into(),
+                    name: "Old machine".into(),
+                    resumable: true,
+                }],
+            }),
+        );
+        assert!(state.archive.entries.is_empty());
+        assert!(state.archive.loading);
+    }
 
     #[test]
     fn archive_renders_names_and_only_resumable_rows_are_clickable() {

@@ -577,7 +577,7 @@ impl ClientShellState {
             }
             PendingEndpointKind::Generic => {}
             PendingEndpointKind::ArchiveList => {
-                self.complete_archive_list(result);
+                self.complete_archive_list(request_id, result);
                 return (true, Vec::new());
             }
             PendingEndpointKind::ArchiveResume => {
