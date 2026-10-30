@@ -102,7 +102,6 @@ pub(super) fn render_collapsed(
             hits.machines.push(MachineHit {
                 rect,
                 status_badge,
-                collapse_toggle: Rect::default(),
                 endpoint_id: endpoint.endpoint_id.clone(),
             });
             y = y.saturating_add(1);
@@ -508,7 +507,6 @@ pub(super) fn render_expanded(
                 hits.machines.push(MachineHit {
                     rect,
                     status_badge,
-                    collapse_toggle: Rect::default(),
                     endpoint_id: endpoint.endpoint_id.clone(),
                 });
                 y = y

@@ -135,11 +135,6 @@ fn unified_sidebar_keeps_multiple_panes_and_footer_controls() {
         .any(|(_, endpoint, pane)| endpoint == &remote && pane == "pane_2"));
     assert_eq!(state.hits.new_workspace.y, 27);
     assert_eq!(state.hits.global_launcher.y, 27);
-    assert!(state
-        .hits
-        .machines
-        .iter()
-        .all(|hit| hit.collapse_toggle.is_empty()));
     let rect = state
         .hits
         .endpoint_agents
@@ -254,11 +249,6 @@ fn compact_machine_rows_remain_expanded() {
         .workspaces
         .iter()
         .any(|hit| hit.endpoint_id == remote));
-    assert!(state
-        .hits
-        .machines
-        .iter()
-        .all(|hit| hit.collapse_toggle.is_empty()));
 }
 
 #[test]
