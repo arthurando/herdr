@@ -29,7 +29,8 @@ The loopback server uses an unpredictable URL prefix, checks Host, and does not 
 Local files have a restrictive content policy; external scripts and API requests are blocked.
 Use an explicit localhost development URL for an app that needs its own server/API policy.
 
-Each launch uses a fresh browser profile under `%LOCALAPPDATA%\herdr\preview\profiles`.
+Each launch uses Edge guest mode and a fresh browser profile under `%LOCALAPPDATA%\herdr\preview\profiles`.
+Guest mode prevents the Windows account sign-in prompt from covering each new preview.
 It does not use your signed-in browser profile, extensions, cookies or native credentials.
 No native JavaScript bridge exists. Profiles remain after close so the launcher never deletes
 files automatically. They can be removed after their preview windows close. Only localhost,
