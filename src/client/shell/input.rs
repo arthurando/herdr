@@ -380,6 +380,32 @@ impl ClientShellState {
             self.reconcile_input_source();
         }
         outcome.repaint |= self.resume_mobile_switcher_if_ready();
+        if self.pending_workspace_highlight.is_some() {
+            let mut blocked = false;
+            for request in &mut outcome.requests {
+                if let ClientMessage::ClientShellPaneInput { events, .. }
+                    | ClientMessage::ClientShellPopupInput { events, .. } = request
+                {
+                    events.retain(|event| {
+                        let release = matches!(event,
+                            ClientPaneInputEvent::Key { kind: crate::protocol::ClientKeyKind::Release, .. }
+                            | ClientPaneInputEvent::Mouse { kind: crate::protocol::ClientMouseKind::Up(_), .. }
+                        );
+                        blocked |= !release;
+                        release
+                    });
+                }
+            }
+            outcome.requests.retain(|request| !matches!(request,
+                ClientMessage::ClientShellPaneInput { events, .. }
+                    | ClientMessage::ClientShellPopupInput { events, .. } if events.is_empty()
+            ));
+            if blocked {
+                outcome.repaint |= self.receive_endpoint_unavailable(
+                    "Selection pending. Terminal input was not sent; retry after the view changes.".into(),
+                );
+            }
+        }
         outcome
     }
 

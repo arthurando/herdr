@@ -13,7 +13,7 @@ pub(super) struct WorkspaceNavigationTarget {
 pub(super) struct PendingWorkspaceHighlight {
     pub(super) target: WorkspaceNavigationTarget,
     pub(super) request_id: String,
-    expires_at: std::time::Instant,
+    pub(super) expires_at: Option<std::time::Instant>,
 }
 
 impl WorkspaceNavigationTarget {
@@ -27,7 +27,8 @@ impl ClientShellState {
         if self
             .pending_workspace_highlight
             .as_ref()
-            .is_some_and(|pending| now >= pending.expires_at)
+            .and_then(|pending| pending.expires_at)
+            .is_some_and(|expires_at| now >= expires_at)
         {
             self.pending_workspace_highlight = None;
             return true;
@@ -190,8 +191,7 @@ impl ClientShellState {
                 self.pending_workspace_highlight = Some(PendingWorkspaceHighlight {
                     target,
                     request_id: request.id.clone(),
-                    // A later focus can be coalesced with this one before a snapshot is sent.
-                    expires_at: std::time::Instant::now() + std::time::Duration::from_secs(1),
+                    expires_at: None,
                 });
                 self.reconcile_pending_workspace_highlight();
             }

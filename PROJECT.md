@@ -119,6 +119,12 @@ for an acknowledgement before it starts another endpoint. Target input stays fen
 until its coherent surface and presentation effects arrive. This avoids one stalled
 source blocking a healthy target; it does not make remote terminal echo local.
 
+Workspace focus shows a local selection while its request is pending. Until the
+server confirms that workspace, terminal input is refused with a visible notice;
+it is not queued and cannot be sent to the previously focused pane. A rejected
+or cancelled request removes the preview. A successful request without a matching
+snapshot removes it after one second, so a coalesced focus does not linger.
+
 The client pipelines the presentation-effects fence after the second surface-sync request on the same ordered transport. This starts only after the initial coherent target commit. Input remains frozen until both the coherent revision/geometry frame and the matching effects token arrive. Each resync uses unique request and fence identifiers, so resize and focus changes reject stale acknowledgements. This removes one serial network round trip from machine activation; it does not reduce ordinary remote typing echo time. The delayed fake-endpoint test compares sequential and overlapping response schedules; live verification remains separate.
 
 

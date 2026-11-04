@@ -517,6 +517,16 @@ impl ClientShellState {
             return self.complete_link_hover(target, result);
         }
         if result.is_ok() {
+            if let Some(highlight) = self
+                .pending_workspace_highlight
+                .as_mut()
+                .filter(|highlight| highlight.request_id == request_id)
+            {
+                // A later focus can be coalesced before a snapshot is sent.
+                highlight.expires_at = Some(
+                    std::time::Instant::now() + std::time::Duration::from_secs(1),
+                );
+            }
             let timeout_key = ClientEndpointNoticeKey {
                 boot_id: boot_id.to_owned(),
                 kind: ClientEndpointNoticeKind::Timeout,

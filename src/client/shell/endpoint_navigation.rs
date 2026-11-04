@@ -295,6 +295,12 @@ impl ClientShellState {
         if endpoint_id == self.active_endpoint_id
             && !(endpoint_id.is_local() && (self.multi_endpoint_active() || !online))
         {
+            let workspace_preview = match &target {
+                ClientEndpointFocusTarget::Workspace(workspace_id) => {
+                    self.navigation_target(&endpoint_id, workspace_id)
+                }
+                _ => None,
+            };
             let method = match target {
                 ClientEndpointFocusTarget::Workspace(workspace_id) => {
                     crate::api::schema::Method::WorkspaceFocus(
@@ -316,7 +322,19 @@ impl ClientShellState {
                     })
                 }
             };
+            let action_index = outcome.actions.len();
             self.push_endpoint_method(method, outcome);
+            if let (Some(target), Some(ClientShellAction::Endpoint { request, .. })) =
+                (workspace_preview, outcome.actions.get(action_index))
+            {
+                self.pending_workspace_highlight = Some(PendingWorkspaceHighlight {
+                    target,
+                    request_id: request.id.clone(),
+                    expires_at: None,
+                });
+                self.reconcile_pending_workspace_highlight();
+                outcome.repaint = true;
+            }
         } else {
             outcome.actions.push(ClientShellAction::ActivateEndpoint {
                 endpoint_id,

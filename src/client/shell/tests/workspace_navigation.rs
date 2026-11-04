@@ -830,7 +830,7 @@ fn navigation_highlight_requires_enqueued_focus_and_yields_to_new_intent() {
         ClientEndpointFocusTarget::Workspace("ws_2".into()),
         &mut focus,
     );
-    assert!(state.pending_workspace_highlight.is_none());
+    assert_local_highlight(&mut state, "ws_2");
 }
 
 #[test]
@@ -917,6 +917,42 @@ fn cancelled_close_does_not_restore_an_older_navigation_highlight() {
     preview_key(&mut state, b"\x1b");
     assert_eq!(state.mode, ClientShellMode::Terminal);
     assert_local_highlight(&mut state, "ws_1");
+}
+
+#[test]
+fn stalled_workspace_focus_keeps_local_selection_until_timeout() {
+    let mut state = local_navigation_state(false);
+    let request_id = request_local_navigation(&mut state, 2);
+    assert!(!state.tick_workspace_highlight(
+        std::time::Instant::now() + std::time::Duration::from_secs(60)
+    ));
+    assert_local_highlight(&mut state, "ws_3");
+    state.cancel_endpoint_request(&request_id);
+    assert_local_highlight(&mut state, "ws_1");
+}
+
+#[test]
+fn direct_workspace_selection_shows_pending_highlight_without_server_reply() {
+    let mut state = local_navigation_state(false);
+    let mut outcome = ClientShellInput::default();
+    assert!(state.focus_or_activate(
+        ClientEndpointId::Local,
+        ClientEndpointFocusTarget::Workspace("ws_3".into()),
+        &mut outcome,
+    ));
+    assert!(outcome.repaint);
+    assert_local_highlight(&mut state, "ws_3");
+    assert!(!state.tick_workspace_highlight(
+        std::time::Instant::now() + std::time::Duration::from_secs(60)
+    ));
+    assert_local_highlight(&mut state, "ws_3");
+    let typed = state.handle_input_bytes(b"dangerous text");
+    assert!(!typed.requests.iter().any(|request| matches!(
+        request, ClientMessage::ClientShellPaneInput { .. }
+    )));
+    assert!(state.visible_endpoint_notice.as_ref().is_some_and(|notice|
+        notice.body.contains("Terminal input was not sent")
+    ));
 }
 
 #[test]
