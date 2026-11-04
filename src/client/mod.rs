@@ -535,6 +535,8 @@ async fn run_client_loop(
     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<ClientLoopEvent>(256);
     #[cfg(windows)]
     let mut file_upload_active = false;
+    #[cfg(windows)]
+    let mut pending_file_upload: Option<file_upload::PendingUpload> = None;
     let (supervisor_tx, mut supervisor_rx) =
         tokio::sync::mpsc::channel::<endpoint::EndpointSupervisorEvent>(64);
     // Keep Windows console draining independent of server-frame backpressure.
@@ -1273,9 +1275,80 @@ async fn run_client_loop(
                         .shell
                         .as_ref()
                         .and_then(|shell| shell.clipboard_image_target());
+                    if let Some(pending) = pending_file_upload.as_ref() {
+                        let current = write_stream.active_id() == &pending.endpoint
+                            && write_stream.active_surface_available()
+                            && write_stream
+                                .connection(&pending.endpoint)
+                                .is_some_and(|c| c.generation == pending.generation)
+                            && image_target.as_ref() == Some(&pending.target);
+                        let choice = file_upload::choice(&events);
+                        if !current || choice != file_upload::Choice::Wait {
+                            let pending = pending_file_upload.take().expect("pending upload");
+                            if let Some(shell) = state.shell.as_mut() {
+                                shell.clear_file_upload_choice();
+                            }
+                            if !current {
+                                if let Some(shell) = state.shell.as_mut() {
+                                    shell.show_file_upload_notice(
+                                        "upload-cancelled",
+                                        "Path not sent",
+                                        "The original pane changed. Paste the path again.".into(),
+                                    );
+                                    if let Some(frame) =
+                                        shell.compose(state.reported_size.0, state.reported_size.1)
+                                    {
+                                        state.present_frame(frame);
+                                    }
+                                }
+                                if choice == file_upload::Choice::Upload {
+                                    continue;
+                                }
+                            } else if choice == file_upload::Choice::Upload {
+                                let tx = event_tx.clone();
+                                file_upload_active = true;
+                                if let Some(shell) = state.shell.as_mut() {
+                                    shell.show_file_upload_notice(
+                                        "upload-start",
+                                        "Upload started",
+                                        pending.path.display().to_string(),
+                                    );
+                                    if let Some(frame) =
+                                        shell.compose(state.reported_size.0, state.reported_size.1)
+                                    {
+                                        state.present_frame(frame);
+                                    }
+                                }
+                                std::thread::spawn(move || {
+                                    let result = file_upload::upload(
+                                        &pending.path,
+                                        &pending.host,
+                                        |bytes, total| {
+                                            let _ = tx.try_send(
+                                                ClientLoopEvent::FileUploadProgress(bytes, total),
+                                            );
+                                        },
+                                    );
+                                    let _ = tx.blocking_send(ClientLoopEvent::FileUpload(
+                                        file_upload::UploadResult {
+                                            endpoint: pending.endpoint,
+                                            target: pending.target,
+                                            generation: pending.generation,
+                                            result,
+                                        },
+                                    ));
+                                });
+                                continue;
+                            } else if let Some(message) =
+                                file_upload::paste_message(&pending.target, pending.original)
+                            {
+                                let _ = write_stream.send_to(&pending.endpoint, &message);
+                            }
+                        }
+                    }
                     if let Some(target) = image_target.clone() {
                         if let (Some(path), endpoint::ClientEndpointId::Ssh(profile_id)) = (
-                            if image_bridge_active {
+                            if image_bridge_active && pending_file_upload.is_none() {
                                 file_upload::dropped_file(&events)
                             } else {
                                 None
@@ -1283,11 +1356,21 @@ async fn run_client_loop(
                             write_stream.active_id().clone(),
                         ) {
                             if file_upload_active {
+                                if let [crate::protocol::ClientInputEvent::Paste { text }] =
+                                    events.as_slice()
+                                {
+                                    if let Some(message) =
+                                        file_upload::paste_message(&target, text.clone())
+                                    {
+                                        let endpoint = write_stream.active_id().clone();
+                                        let _ = write_stream.send_to(&endpoint, &message);
+                                    }
+                                }
                                 if let Some(shell) = state.shell.as_mut() {
                                     shell.show_file_upload_notice(
                                         "upload-busy",
                                         "Upload in progress",
-                                        "Wait for the current upload to finish.".into(),
+                                        "Local path pasted; wait for the current upload.".into(),
                                     );
                                     if let Some(frame) =
                                         shell.compose(state.reported_size.0, state.reported_size.1)
@@ -1297,43 +1380,31 @@ async fn run_client_loop(
                                 }
                                 continue;
                             }
-                            if let (Some(profile), Some(connection)) = (
+                            if let (
+                                Some(profile),
+                                Some(connection),
+                                [crate::protocol::ClientInputEvent::Paste { text }],
+                            ) = (
                                 endpoint_catalog.ssh.iter().find(|p| p.id == profile_id),
                                 write_stream.connection(write_stream.active_id()),
+                                events.as_slice(),
                             ) {
-                                let host = profile.target.clone();
-                                let endpoint = write_stream.active_id().clone();
-                                let generation = connection.generation;
-                                let tx = event_tx.clone();
-                                file_upload_active = true;
+                                pending_file_upload = Some(file_upload::PendingUpload {
+                                    endpoint: write_stream.active_id().clone(),
+                                    target,
+                                    generation: connection.generation,
+                                    host: profile.target.clone(),
+                                    path,
+                                    original: text.clone(),
+                                });
                                 if let Some(shell) = state.shell.as_mut() {
-                                    shell.show_file_upload_notice(
-                                        "upload-start",
-                                        "Upload started",
-                                        path.display().to_string(),
-                                    );
+                                    shell.show_file_upload_notice("upload-choice", "Local file path", "Ctrl+U: upload to this machine. Other input: paste the local path.".into());
                                     if let Some(frame) =
                                         shell.compose(state.reported_size.0, state.reported_size.1)
                                     {
                                         state.present_frame(frame);
                                     }
                                 }
-                                std::thread::spawn(move || {
-                                    let result =
-                                        file_upload::upload(&path, &host, |bytes, total| {
-                                            let _ = tx.try_send(
-                                                ClientLoopEvent::FileUploadProgress(bytes, total),
-                                            );
-                                        });
-                                    let _ = tx.blocking_send(ClientLoopEvent::FileUpload(
-                                        file_upload::UploadResult {
-                                            endpoint,
-                                            target,
-                                            generation,
-                                            result,
-                                        },
-                                    ));
-                                });
                                 continue;
                             }
                         }

@@ -14,6 +14,76 @@ pub(super) struct UploadResult {
     pub result: Result<String, String>,
 }
 
+pub(super) struct PendingUpload {
+    pub endpoint: ClientEndpointId,
+    pub target: ClientClipboardImageTarget,
+    pub generation: u64,
+    pub host: String,
+    pub path: PathBuf,
+    pub original: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Choice {
+    Wait,
+    Upload,
+    Paste,
+}
+
+pub(super) fn choice(events: &[ClientInputEvent]) -> Choice {
+    use crate::protocol::{ClientKeyCode, ClientKeyKind, ClientMouseKind};
+    let mut upload = false;
+    for event in events {
+        match event {
+            ClientInputEvent::Key {
+                code: ClientKeyCode::Char(ch),
+                modifiers,
+                kind: ClientKeyKind::Press,
+                ..
+            } if (*ch == 'u' || *ch == 'U')
+                && *modifiers == crossterm::event::KeyModifiers::CONTROL.bits() =>
+            {
+                upload = true;
+            }
+            ClientInputEvent::Key {
+                kind: ClientKeyKind::Press | ClientKeyKind::Repeat,
+                ..
+            }
+            | ClientInputEvent::TextCommit(_)
+            | ClientInputEvent::Paste { .. } => return Choice::Paste,
+            ClientInputEvent::Mouse { kind, .. } if !matches!(kind, ClientMouseKind::Moved) => {
+                return Choice::Paste
+            }
+            _ => {}
+        }
+    }
+    if upload {
+        Choice::Upload
+    } else {
+        Choice::Wait
+    }
+}
+
+pub(super) fn paste_message(
+    target: &ClientClipboardImageTarget,
+    text: String,
+) -> Option<crate::protocol::ClientMessage> {
+    use crate::protocol::{ClientMessage, ClientPaneInputEvent};
+    match target {
+        ClientClipboardImageTarget::Pane(pane_id) => Some(ClientMessage::ClientShellPaneInput {
+            pane_id: pane_id.clone(),
+            events: vec![ClientPaneInputEvent::Paste(text)],
+        }),
+        ClientClipboardImageTarget::Popup(terminal_id) => {
+            Some(ClientMessage::ClientShellPopupInput {
+                terminal_id: terminal_id.clone(),
+                events: vec![ClientPaneInputEvent::Paste(text)],
+            })
+        }
+        ClientClipboardImageTarget::DirectTerminal => None,
+    }
+}
+
 pub(super) fn dropped_file(events: &[ClientInputEvent]) -> Option<PathBuf> {
     let [ClientInputEvent::Paste { text }] = events else {
         return None;
@@ -158,6 +228,38 @@ pub(super) fn shell_quote(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn path_upload_requires_explicit_ctrl_u() {
+        use crate::protocol::{ClientKeyCode, ClientKeyKind, ClientKeySource};
+        let key = |code, modifiers, kind| ClientInputEvent::Key {
+            code,
+            modifiers,
+            kind,
+            repeat_count: 1,
+            generated_text: None,
+            source: ClientKeySource::Synthesized,
+        };
+        assert_eq!(
+            choice(&[key(
+                ClientKeyCode::Char('u'),
+                crossterm::event::KeyModifiers::CONTROL.bits(),
+                ClientKeyKind::Press
+            )]),
+            Choice::Upload
+        );
+        assert_eq!(
+            choice(&[key(ClientKeyCode::Enter, 0, ClientKeyKind::Press)]),
+            Choice::Paste
+        );
+        assert_eq!(
+            choice(&[key(
+                ClientKeyCode::Char('u'),
+                crossterm::event::KeyModifiers::CONTROL.bits(),
+                ClientKeyKind::Release
+            )]),
+            Choice::Wait
+        );
+    }
     #[test]
     fn safe_names_cannot_change_remote_command() {
         assert_eq!(safe_name(Path::new("a';$(x).pdf")), "a____x_.pdf");

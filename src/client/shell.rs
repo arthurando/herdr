@@ -289,7 +289,22 @@ fn blit_pane_surface(target: &mut FrameData, source: &FrameData, area: Rect) {
 mod tests;
 
 impl ClientShellState {
+    pub(crate) fn clear_file_upload_choice(&mut self) {
+        if self
+            .visible_endpoint_notice
+            .as_ref()
+            .is_some_and(|notice| notice.key.code == "upload-choice")
+        {
+            self.visible_endpoint_notice = None;
+        }
+    }
+
     pub(crate) fn show_file_upload_notice(&mut self, code: &str, title: &str, body: String) {
         self.push_endpoint_notice(ClientEndpointNoticeKind::Rejected, code, title, body);
+        if code == "upload-choice" {
+            if let Some(notice) = self.visible_endpoint_notice.as_mut() {
+                notice.deadline = std::time::Instant::now() + std::time::Duration::from_secs(86400);
+            }
+        }
     }
 }

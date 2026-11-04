@@ -152,7 +152,8 @@ The direct-input client is installed separately as `local.direct-input-20261028`
 
 ## Windows remote file drop
 
-A pasted absolute Windows drive path in a remote pane is treated as a file drop.
+A pasted absolute Windows drive path in a remote pane opens a choice. Press
+Ctrl+U to upload; other input sends the original path to the pane.
 Herdr transfers one file at a time over a separate noninteractive SSH process.
 It creates a unique directory under `~/herdr-uploads`, verifies SHA-256, and
 pastes a quoted path only when the original endpoint generation and pane remain
