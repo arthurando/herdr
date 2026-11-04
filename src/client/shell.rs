@@ -191,14 +191,14 @@ fn status_icon(
         (
             StatusIndicatorStyle::Dots,
             AgentStatus::Working | AgentStatus::Blocked | AgentStatus::Done,
-        ) => "??,
-        (StatusIndicatorStyle::Dots, AgentStatus::Idle) => "??,
-        (StatusIndicatorStyle::Dots, AgentStatus::Unknown) => "繚",
-        (StatusIndicatorStyle::Symbols, AgentStatus::Blocked) => "?",
-        (StatusIndicatorStyle::Symbols, AgentStatus::Working) => "??,
-        (StatusIndicatorStyle::Symbols, AgentStatus::Done) => "??,
-        (StatusIndicatorStyle::Symbols, AgentStatus::Idle) => "??,
-        (StatusIndicatorStyle::Symbols, AgentStatus::Unknown) => "繚",
+        ) => "●",
+        (StatusIndicatorStyle::Dots, AgentStatus::Idle) => "○",
+        (StatusIndicatorStyle::Dots, AgentStatus::Unknown) => "·",
+        (StatusIndicatorStyle::Symbols, AgentStatus::Blocked) => "×",
+        (StatusIndicatorStyle::Symbols, AgentStatus::Working) => "◐",
+        (StatusIndicatorStyle::Symbols, AgentStatus::Done) => "✓",
+        (StatusIndicatorStyle::Symbols, AgentStatus::Idle) => "○",
+        (StatusIndicatorStyle::Symbols, AgentStatus::Unknown) => "·",
     }
 }
 
