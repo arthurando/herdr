@@ -6,7 +6,7 @@ mod aggregate_navigation;
 mod archive;
 mod machine_diagnostics;
 mod workspace_navigation;
-use workspace_navigation::{PendingWorkspaceHighlight, PendingWorkspaceInput, WorkspaceNavigationTarget};
+use workspace_navigation::{PendingDirectFocus, PendingWorkspaceHighlight, PendingWorkspaceInput, WorkspaceNavigationTarget};
 mod composition;
 mod config;
 mod context_menu;

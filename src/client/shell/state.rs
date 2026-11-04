@@ -931,6 +931,7 @@ pub(crate) struct ClientShellState {
     pub(super) mode: ClientShellMode,
     pub(super) navigate_workspace_id: Option<WorkspaceNavigationTarget>,
     pub(super) pending_workspace_highlight: Option<PendingWorkspaceHighlight>,
+    pub(super) pending_direct_focus: Option<PendingDirectFocus>,
     pub(super) pending_workspace_inputs: Vec<PendingWorkspaceInput>,
     pub(super) reveal_navigation_workspace: bool,
     pub(super) overlay: Option<ClientShellOverlay>,
@@ -1109,6 +1110,7 @@ impl ClientShellState {
             mode: ClientShellMode::Terminal,
             navigate_workspace_id: None,
             pending_workspace_highlight: None,
+            pending_direct_focus: None,
             pending_workspace_inputs: Vec::new(),
             reveal_navigation_workspace: false,
             overlay,
@@ -1306,6 +1308,8 @@ impl ClientShellState {
         self.endpoint_error_deadline = None;
         self.navigate_workspace_id = None;
         self.pending_workspace_highlight = None;
+        self.pending_direct_focus = None;
+        for entry in &mut self.pending_workspace_inputs { entry.armed = false; }
         self.overlay = self
             .config
             .startup_onboarding

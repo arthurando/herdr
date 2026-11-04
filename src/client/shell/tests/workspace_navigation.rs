@@ -1030,6 +1030,91 @@ fn recovery_requires_explicit_double_discard_and_never_replays_uncertain_input()
 }
 
 #[test]
+fn pending_pane_focus_buffers_until_that_exact_pane_is_presented() {
+    let mut state = local_navigation_state(false);
+    let mut initial = workspaces(3);
+    let mut pane = initial.panes[0].clone();
+    pane.pane_id = "pane_2".into();
+    pane.focused = false;
+    initial.panes.push(pane);
+    state.set_snapshot(Box::new(initial.clone()));
+    let mut outcome = ClientShellInput::default();
+    state.push_endpoint_method(crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id: "pane_2".into() }), &mut outcome);
+    state.handle_input_bytes(b"test");
+    assert_eq!(state.pending_workspace_inputs[0].pane_id.as_deref(), Some("pane_2"));
+    assert!(state.visible_endpoint_notice.as_ref().is_some_and(|notice| notice.body.contains("Input held in memory")));
+    state.push_endpoint_notice(ClientEndpointNoticeKind::Rejected, "other", "Other", "Other notice");
+    state.handle_input_bytes(b"more");
+    assert!(state.visible_endpoint_notice.as_ref().is_some_and(|notice| notice.body.contains("Input held in memory")), "pending status must reappear after a different notice");
+    assert!(state.take_ready_workspace_input().is_none());
+    initial.revision = 2;
+    initial.focused_pane_id = Some("pane_2".into());
+    state.set_snapshot(Box::new(initial));
+    assert!(state.take_ready_workspace_input().is_none());
+    let mut frame = surface();
+    frame.projection_revision = 2;
+    frame.panes[0].pane_id = "pane_2".into();
+    state.set_pane_surface(frame);
+    assert!(matches!(state.take_ready_workspace_input(), Some(ClientMessage::ClientShellPaneInput { pane_id, .. }) if pane_id == "pane_2"));
+}
+
+#[test]
+fn pending_tab_focus_does_not_release_on_the_previous_tab() {
+    let mut state = local_navigation_state(false);
+    let mut initial = workspaces(3);
+    let mut tab = initial.tabs[0].clone();
+    tab.tab_id = "tab_2".into();
+    tab.focused = false;
+    initial.tabs.push(tab);
+    state.set_snapshot(Box::new(initial));
+    let mut outcome = ClientShellInput::default();
+    state.push_endpoint_method(crate::api::schema::Method::TabFocus(crate::api::schema::TabTarget { tab_id: "tab_2".into() }), &mut outcome);
+    state.handle_input_bytes(b"test");
+    assert_eq!(state.pending_workspace_inputs[0].tab_id.as_deref(), Some("tab_2"));
+    assert!(state.take_ready_workspace_input().is_none());
+}
+
+#[test]
+fn rejected_pane_focus_keeps_input_unsent_and_disarmed() {
+    let mut state = local_navigation_state(false);
+    let mut initial = workspaces(3);
+    let mut pane = initial.panes[0].clone();
+    pane.pane_id = "pane_2".into();
+    pane.focused = false;
+    initial.panes.push(pane);
+    state.set_snapshot(Box::new(initial));
+    let mut outcome = ClientShellInput::default();
+    state.push_endpoint_method(crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id: "pane_2".into() }), &mut outcome);
+    let [ClientShellAction::Endpoint { request, .. }] = outcome.actions.as_slice() else { panic!("missing focus request") };
+    state.handle_input_bytes(b"test");
+    state.cancel_endpoint_request(&request.id);
+    assert!(!state.pending_workspace_inputs[0].armed);
+    assert!(!state.pending_workspace_inputs[0].uncertain);
+    assert!(state.pending_direct_focus.is_none());
+}
+
+#[test]
+fn disconnect_disarms_held_pane_input_without_discarding_it() {
+  for retire in [false, true] {
+    let mut state = local_navigation_state(false);
+    let mut initial = workspaces(3);
+    let mut pane = initial.panes[0].clone();
+    pane.pane_id = "pane_2".into();
+    pane.focused = false;
+    initial.panes.push(pane);
+    state.set_snapshot(Box::new(initial));
+    let mut outcome = ClientShellInput::default();
+    state.push_endpoint_method(crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id: "pane_2".into() }), &mut outcome);
+    state.handle_input_bytes(b"test");
+    if retire { state.retire_endpoint(&ClientEndpointId::Local); }
+    else { state.mark_endpoint_disconnected(&ClientEndpointId::Local); }
+    assert!(!state.pending_workspace_inputs[0].armed);
+    assert!(!state.pending_workspace_inputs[0].uncertain);
+    assert!(state.pending_direct_focus.is_none());
+  }
+}
+
+#[test]
 fn focus_and_text_in_one_input_batch_are_not_assigned_to_the_wrong_workspace() {
     let mut state = local_navigation_state(false);
     enter_navigation(&mut state);

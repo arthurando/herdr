@@ -164,6 +164,23 @@ try:
         time.sleep(.1)
     assert remote_text.count('__BUFFERED_STALL__') >= 2, 'Buffered input did not reach the selected workspace'
     receipt['checks']['buffered_input_executed_in_selected_workspace'] = True
+    cli('pane', 'split', 'w2:p1', '--direction', 'right', '--no-focus')
+    assert 'w2:p2' in cli('pane', 'list', '--workspace', 'w2')
+    time.sleep(.8)
+    server.suspend(); suspended=True
+    client.action('\x1b[<0;100;20M\x1b[<0;100;20m', 'Selection pending')
+    receipt['checks']['pending_pane_input_notice_ms'] = client.action('echo __BUFFERED_PANE__', 'Input held in memory')
+    client.proc.write('\r')
+    server.resume(); suspended=False
+    client.wait('__BUFFERED_PANE__', timeout=20)
+    deadline=time.perf_counter()+10
+    remote_text=''
+    while time.perf_counter()<deadline:
+        remote_text=cli('pane','read','w2:p2','--source','visible')
+        if remote_text.count('__BUFFERED_PANE__') >= 2: break
+        time.sleep(.1)
+    assert remote_text.count('__BUFFERED_PANE__') >= 2, 'Buffered input did not reach the selected pane'
+    receipt['checks']['buffered_input_executed_in_selected_pane'] = True
     receipt['passed'] = True
 except Exception as error:
     receipt['passed'] = False; receipt['error'] = str(error)

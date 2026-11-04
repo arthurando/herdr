@@ -19,9 +19,18 @@ pub(super) struct PendingWorkspaceHighlight {
 /// Input remains bound to the selection that received it, including its boot and generation.
 pub(super) struct PendingWorkspaceInput {
     pub(super) target: WorkspaceNavigationTarget,
+    pub(super) tab_id: Option<String>,
+    pub(super) pane_id: Option<String>,
     pub(super) events: Vec<crate::protocol::ClientPaneInputEvent>,
     pub(super) uncertain: bool,
     pub(super) armed: bool,
+}
+
+pub(super) struct PendingDirectFocus {
+    pub(super) target: WorkspaceNavigationTarget,
+    pub(super) tab_id: Option<String>,
+    pub(super) pane_id: Option<String>,
+    pub(super) request_id: String,
 }
 
 impl WorkspaceNavigationTarget {
@@ -36,8 +45,9 @@ impl ClientShellState {
             return vec!["No pending input".into()];
         }
         self.pending_workspace_inputs.iter().map(|entry| format!(
-            "{} / {}: {} events - {}",
+            "{} / {} / {}: {} events - {}",
             self.endpoint_label(&entry.target.endpoint_id), entry.target.workspace_id,
+            entry.pane_id.as_deref().or(entry.tab_id.as_deref()).unwrap_or("workspace"),
             entry.events.len(), if entry.uncertain { "delivery uncertain; check remote" } else { "unsent" }
         )).collect()
     }
@@ -76,14 +86,19 @@ impl ClientShellState {
                     self.receive_endpoint_unavailable("Delivery is uncertain. Check the remote pane; do not retry blindly.".into());
                 } else {
                     let target = entry.target.clone();
+                    let tab_id = entry.tab_id.clone();
+                    let pane_id = entry.pane_id.clone();
                     if !self.navigation_target_valid(&target) {
                         self.receive_endpoint_unavailable("Original workspace identity changed. Input remains unsent.".into());
                         outcome.repaint = true;
                         return true;
                     }
                     self.overlay = None;
-                    if self.focus_or_activate(target.endpoint_id.clone(), ClientEndpointFocusTarget::Workspace(target.workspace_id.clone()), outcome) {
-                        if let Some(entry) = self.pending_workspace_inputs.iter_mut().find(|entry| entry.target == target && !entry.uncertain) {
+                    let focus = if let Some(pane) = pane_id.clone() { ClientEndpointFocusTarget::Pane(pane) }
+                        else if let Some(tab) = tab_id.clone() { ClientEndpointFocusTarget::Tab(tab) }
+                        else { ClientEndpointFocusTarget::Workspace(target.workspace_id.clone()) };
+                    if self.focus_or_activate(target.endpoint_id.clone(), focus, outcome) {
+                        if let Some(entry) = self.pending_workspace_inputs.iter_mut().find(|entry| entry.target == target && entry.tab_id == tab_id && entry.pane_id == pane_id && !entry.uncertain) {
                             entry.armed = true;
                         }
                     }
@@ -111,11 +126,23 @@ impl ClientShellState {
         {
             return None;
         }
+        if self.pending_direct_focus.as_ref().is_some_and(|pending|
+            !pending.target.matches(&self.active_endpoint_id, workspace_id)
+                || pending.target.boot_id != snapshot.boot_id
+                || pending.target.generation != self.active_snapshot_generation
+                || pending.tab_id.as_deref().is_some_and(|id| snapshot.focused_tab_id.as_deref() != Some(id))
+                || pending.pane_id.as_deref().is_some_and(|id| pane_id != id))
+        {
+            return None;
+        }
+        self.pending_direct_focus = None;
         let index = self.pending_workspace_inputs.iter().position(|entry|
             !entry.uncertain && entry.armed && !entry.events.is_empty()
                 && entry.target.matches(&self.active_endpoint_id, workspace_id)
                 && entry.target.boot_id == snapshot.boot_id
                 && entry.target.generation == self.active_snapshot_generation
+                && entry.tab_id.as_deref().is_none_or(|id| snapshot.focused_tab_id.as_deref() == Some(id))
+                && entry.pane_id.as_deref().is_none_or(|id| pane_id == id)
         )?;
         let entry = &mut self.pending_workspace_inputs[index];
         entry.uncertain = true;
@@ -128,10 +155,11 @@ impl ClientShellState {
         &mut self,
         events: Vec<crate::protocol::ClientPaneInputEvent>,
     ) -> Result<usize, &'static str> {
-        let target = self.pending_workspace_highlight.as_ref().map(|pending| pending.target.clone())
-            .or_else(|| self.pending_workspace_inputs.iter().find(|entry| entry.armed && !entry.uncertain).map(|entry| entry.target.clone()))
+        let (target, tab_id, pane_id) = self.pending_direct_focus.as_ref().map(|pending| (pending.target.clone(), pending.tab_id.clone(), pending.pane_id.clone()))
+            .or_else(|| self.pending_workspace_highlight.as_ref().map(|pending| (pending.target.clone(), None, None)))
+            .or_else(|| self.pending_workspace_inputs.iter().find(|entry| entry.armed && !entry.uncertain).map(|entry| (entry.target.clone(), entry.tab_id.clone(), entry.pane_id.clone())))
             .ok_or("No workspace selection is pending")?;
-        let existing = self.pending_workspace_inputs.iter().position(|entry| entry.target == target);
+        let existing = self.pending_workspace_inputs.iter().position(|entry| entry.target == target && entry.tab_id == tab_id && entry.pane_id == pane_id);
         if existing.is_none() && self.pending_workspace_inputs.len() >= 8 {
             return Err("Pending input limit reached; no input was queued");
         }
@@ -139,7 +167,7 @@ impl ClientShellState {
             Some(index) => index,
             None => {
                 self.pending_workspace_inputs.push(PendingWorkspaceInput {
-                    target, events: Vec::new(), uncertain: false, armed: true,
+                    target, tab_id, pane_id, events: Vec::new(), uncertain: false, armed: true,
                 });
                 self.pending_workspace_inputs.len() - 1
             }

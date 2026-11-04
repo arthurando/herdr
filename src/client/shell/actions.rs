@@ -369,6 +369,7 @@ impl ClientShellState {
             _ => false,
         };
         if changes_focus {
+            self.pending_direct_focus = None;
             for entry in &mut self.pending_workspace_inputs {
                 entry.armed = false;
             }
@@ -393,6 +394,19 @@ impl ClientShellState {
         }
         let Some(snapshot) = self.snapshot.as_deref() else {
             return false;
+        };
+        let direct_focus = match &method {
+            crate::api::schema::Method::PaneFocus(target)
+                if snapshot.focused_pane_id.as_deref() != Some(target.pane_id.as_str()) =>
+                snapshot.panes.iter().find(|pane| pane.pane_id == target.pane_id)
+                    .and_then(|pane| self.navigation_target(&self.active_endpoint_id, &pane.workspace_id)
+                        .map(|workspace| (workspace, Some(pane.tab_id.clone()), Some(pane.pane_id.clone())))),
+            crate::api::schema::Method::TabFocus(target)
+                if snapshot.focused_tab_id.as_deref() != Some(target.tab_id.as_str()) =>
+                snapshot.tabs.iter().find(|tab| tab.tab_id == target.tab_id)
+                    .and_then(|tab| self.navigation_target(&self.active_endpoint_id, &tab.workspace_id)
+                        .map(|workspace| (workspace, Some(tab.tab_id.clone()), None))),
+            _ => None,
         };
         let confirmation_workspace_id = match &method {
             crate::api::schema::Method::TabClose(target) => snapshot
@@ -419,6 +433,13 @@ impl ClientShellState {
                 kind,
             },
         );
+        let has_direct_focus = direct_focus.is_some();
+        if let Some((target, tab_id, pane_id)) = direct_focus {
+            self.pending_direct_focus = Some(PendingDirectFocus {
+                target, tab_id, pane_id, request_id: request_id.clone(),
+            });
+            outcome.repaint = true;
+        }
         outcome.actions.push(ClientShellAction::Endpoint {
             endpoint_id: self.active_endpoint_id.clone(),
             boot_id: snapshot.boot_id.clone(),
@@ -427,6 +448,9 @@ impl ClientShellState {
                 method,
             }),
         });
+        if has_direct_focus {
+            self.push_endpoint_notice(ClientEndpointNoticeKind::Rejected, "pending-focus", "Selection pending", "The view will update when the server responds.");
+        }
         true
     }
 
@@ -538,6 +562,15 @@ impl ClientShellState {
             self.endpoint_notice_seen.remove(&timeout_key);
         }
         if let Err(error) = &result {
+            if self.pending_direct_focus.as_ref().is_some_and(|pending| pending.request_id == request_id) {
+                if let Some(pending) = self.pending_direct_focus.take() {
+                    for entry in &mut self.pending_workspace_inputs {
+                        if entry.target == pending.target && entry.tab_id == pending.tab_id && entry.pane_id == pending.pane_id {
+                            entry.armed = false;
+                        }
+                    }
+                }
+            }
             if self
                 .pending_workspace_highlight
                 .as_ref()

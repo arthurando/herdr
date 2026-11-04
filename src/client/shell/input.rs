@@ -383,19 +383,23 @@ impl ClientShellState {
         let mixed_focus = outcome.actions.iter().any(|action| match action {
             ClientShellAction::ActivateEndpoint { .. } => true,
             ClientShellAction::Endpoint { request, .. } => matches!(request.method,
-                crate::api::schema::Method::WorkspaceFocus(_)),
+                crate::api::schema::Method::WorkspaceFocus(_)) || (self.pending_direct_focus.is_some()
+                    && matches!(request.method, crate::api::schema::Method::PaneFocus(_) | crate::api::schema::Method::TabFocus(_))),
             _ => false,
         });
-        if mixed_focus || self.pending_workspace_highlight.is_some()
+        if mixed_focus || self.pending_workspace_highlight.is_some() || self.pending_direct_focus.is_some()
             || self.pending_workspace_inputs.iter().any(|entry| entry.armed && !entry.uncertain)
         {
             let mut buffered = Vec::new();
             let mut blocked = false;
             let mut pressed = Vec::new();
-            let buffer_target = self.pending_workspace_highlight.as_ref().map(|p| &p.target)
-                .or_else(|| self.pending_workspace_inputs.iter().find(|entry| entry.armed && !entry.uncertain).map(|entry| &entry.target));
-            if let Some(target) = buffer_target {
-                if let Some(entry) = self.pending_workspace_inputs.iter().find(|entry| &entry.target == target) {
+            let buffer_identity = self.pending_direct_focus.as_ref().map(|p| (&p.target, p.tab_id.as_ref(), p.pane_id.as_ref()))
+                .or_else(|| self.pending_workspace_highlight.as_ref().map(|p| (&p.target, None, None)))
+                .or_else(|| self.pending_workspace_inputs.iter().find(|entry| entry.armed && !entry.uncertain).map(|entry| (&entry.target, entry.tab_id.as_ref(), entry.pane_id.as_ref())));
+            if let Some((target, tab_id, pane_id)) = buffer_identity {
+                if let Some(entry) = self.pending_workspace_inputs.iter().find(|entry| {
+                    &entry.target == target && entry.tab_id.as_ref() == tab_id && entry.pane_id.as_ref() == pane_id
+                }) {
                     for event in &entry.events {
                         if let ClientPaneInputEvent::Key { code, kind, .. } = event {
                             match kind {
@@ -411,6 +415,7 @@ impl ClientShellState {
                 if let ClientMessage::ClientShellPaneInput { events, .. } = request {
                     events.retain(|event| {
                         match event {
+                            ClientPaneInputEvent::Mouse { .. } if self.pending_direct_focus.is_some() => true,
                             ClientPaneInputEvent::Mouse { kind: crate::protocol::ClientMouseKind::Up(_), .. } => true,
                             ClientPaneInputEvent::Mouse { .. } => { blocked = true; false },
                             ClientPaneInputEvent::Key { code, kind: crate::protocol::ClientKeyKind::Release, .. } if !pressed.contains(code) => true,
@@ -444,7 +449,9 @@ impl ClientShellState {
                         Err(message) => message.to_owned(),
                     }
                 };
-                outcome.repaint |= self.receive_endpoint_unavailable(message);
+                outcome.repaint |= self.push_endpoint_notice(
+                    ClientEndpointNoticeKind::Rejected, "pending-input", "Input pending", message,
+                );
             } else if blocked {
                 outcome.repaint |= self.receive_endpoint_unavailable(
                     "Selection pending. Pointer input was not sent.".into(),

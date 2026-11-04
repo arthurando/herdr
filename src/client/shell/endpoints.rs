@@ -116,6 +116,10 @@ impl ClientShellState {
         self.clear_machine_diagnostic(endpoint_id);
         if endpoint_id == &self.active_endpoint_id {
             self.pending_workspace_highlight = None;
+            self.pending_direct_focus = None;
+            for entry in &mut self.pending_workspace_inputs {
+                if &entry.target.endpoint_id == endpoint_id { entry.armed = false; }
+            }
         }
         self.retire_endpoint_notifications(endpoint_id);
         if let Some(endpoint) = self
@@ -148,6 +152,10 @@ impl ClientShellState {
         }
         if endpoint_id == &self.active_endpoint_id && status != ClientEndpointStatus::Online {
             self.pending_workspace_highlight = None;
+            self.pending_direct_focus = None;
+            for entry in &mut self.pending_workspace_inputs {
+                if &entry.target.endpoint_id == endpoint_id { entry.armed = false; }
+            }
         }
         if let Some(endpoint) = self
             .endpoints

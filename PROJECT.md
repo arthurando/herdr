@@ -127,6 +127,9 @@ masks content, lists unsent and uncertain entries, and permits explicit discard.
 Once a transport send is attempted, delivery is uncertain and is not retried
 automatically. Closing the client loses held input. Simultaneous selection and
 input in one batch are refused with a notice. Pointer input is not buffered.
+Pane and tab focus requests also bind held input to the requested pane or tab.
+Input waits for the matching snapshot and surface. A disconnect or retired
+endpoint disarms held input; the recovery view keeps it for explicit action.
 
 The client pipelines the presentation-effects fence after the second surface-sync request on the same ordered transport. This starts only after the initial coherent target commit. Input remains frozen until both the coherent revision/geometry frame and the matching effects token arrive. Each resync uses unique request and fence identifiers, so resize and focus changes reject stale acknowledgements. This removes one serial network round trip from machine activation; it does not reduce ordinary remote typing echo time. The delayed fake-endpoint test compares sequential and overlapping response schedules; live verification remains separate.
 

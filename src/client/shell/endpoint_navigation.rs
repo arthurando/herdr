@@ -277,6 +277,7 @@ impl ClientShellState {
         target: ClientEndpointFocusTarget,
         outcome: &mut ClientShellInput,
     ) -> bool {
+        self.pending_direct_focus = None;
         for entry in &mut self.pending_workspace_inputs {
             entry.armed = false;
         }
@@ -331,7 +332,7 @@ impl ClientShellState {
                 (workspace_preview, outcome.actions.get(action_index))
             {
                 for entry in &mut self.pending_workspace_inputs {
-                    entry.armed = entry.target == target && !entry.uncertain;
+                    entry.armed = entry.target == target && entry.tab_id.is_none() && entry.pane_id.is_none() && !entry.uncertain;
                 }
                 self.pending_workspace_highlight = Some(PendingWorkspaceHighlight {
                     target,
