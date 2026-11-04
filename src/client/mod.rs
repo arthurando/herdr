@@ -23,6 +23,8 @@ pub(crate) mod endpoint;
 mod endpoint_commands;
 mod errors;
 mod events;
+#[cfg(windows)]
+mod file_upload;
 mod frame_output;
 #[cfg(test)]
 mod frame_output_tests;
@@ -531,6 +533,8 @@ async fn run_client_loop(
 
     // Channel for events from the resize and server reader threads.
     let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<ClientLoopEvent>(256);
+    #[cfg(windows)]
+    let mut file_upload_active = false;
     let (supervisor_tx, mut supervisor_rx) =
         tokio::sync::mpsc::channel::<endpoint::EndpointSupervisorEvent>(64);
     // Keep Windows console draining independent of server-frame backpressure.
@@ -678,7 +682,10 @@ async fn run_client_loop(
     let mut stdin_open = true;
     while !should_quit.load(Ordering::Acquire) {
         if pending_activation.is_none() && write_stream.active_surface_available() {
-            let buffered = state.shell.as_mut().and_then(|shell| shell.take_ready_workspace_input());
+            let buffered = state
+                .shell
+                .as_mut()
+                .and_then(|shell| shell.take_ready_workspace_input());
             if let Some(message) = buffered {
                 let sent = write_stream.send(&message);
                 if let Some(shell) = state.shell.as_mut() {
@@ -838,6 +845,82 @@ async fn run_client_loop(
 
         match event {
             ClientLoopEvent::EndpointCatalog(reload) => pending_catalog = Some(reload),
+            #[cfg(windows)]
+            ClientLoopEvent::FileUploadProgress(bytes, total) => {
+                if let Some(shell) = state.shell.as_mut() {
+                    shell.show_file_upload_notice(
+                        "upload-progress",
+                        "Upload in progress",
+                        format!("{} / {} bytes", bytes, total),
+                    );
+                    if let Some(frame) = shell.compose(state.reported_size.0, state.reported_size.1)
+                    {
+                        state.present_frame(frame);
+                    }
+                }
+            }
+            #[cfg(windows)]
+            ClientLoopEvent::FileUpload(upload) => {
+                file_upload_active = false;
+                let (title, body) = match upload.result {
+                    Err(error) => ("Upload failed", error),
+                    Ok(path) => {
+                        let current = write_stream.active_id() == &upload.endpoint
+                            && write_stream.active_surface_available()
+                            && write_stream
+                                .connection(&upload.endpoint)
+                                .is_some_and(|c| c.generation == upload.generation)
+                            && state
+                                .shell
+                                .as_ref()
+                                .and_then(|s| s.clipboard_image_target())
+                                .as_ref()
+                                == Some(&upload.target);
+                        let message = match upload.target {
+                            crate::protocol::ClientClipboardImageTarget::Pane(pane_id) => {
+                                Some(ClientMessage::ClientShellPaneInput {
+                                    pane_id,
+                                    events: vec![crate::protocol::ClientPaneInputEvent::Paste(
+                                        file_upload::shell_quote(&path),
+                                    )],
+                                })
+                            }
+                            crate::protocol::ClientClipboardImageTarget::Popup(terminal_id) => {
+                                Some(ClientMessage::ClientShellPopupInput {
+                                    terminal_id,
+                                    events: vec![crate::protocol::ClientPaneInputEvent::Paste(
+                                        file_upload::shell_quote(&path),
+                                    )],
+                                })
+                            }
+                            _ => None,
+                        };
+                        if current
+                            && message.as_ref().is_some_and(|m| {
+                                write_stream.send_to(&upload.endpoint, m)
+                                    == endpoint::EndpointSendOutcome::Sent
+                            })
+                        {
+                            (
+                                "Upload verified",
+                                format!("Path sent to original pane: {path}"),
+                            )
+                        } else {
+                            (
+                                "Upload verified",
+                                format!("Original pane changed. SID path: {path}"),
+                            )
+                        }
+                    }
+                };
+                if let Some(shell) = state.shell.as_mut() {
+                    shell.show_file_upload_notice("upload-result", title, body);
+                    if let Some(frame) = shell.compose(state.reported_size.0, state.reported_size.1)
+                    {
+                        state.present_frame(frame);
+                    }
+                }
+            }
             #[cfg(unix)]
             ClientLoopEvent::StdinInput(data) => {
                 let image_bridge_active = endpoint_accepts_local_images(
@@ -1191,6 +1274,69 @@ async fn run_client_loop(
                         .as_ref()
                         .and_then(|shell| shell.clipboard_image_target());
                     if let Some(target) = image_target.clone() {
+                        if let (Some(path), endpoint::ClientEndpointId::Ssh(profile_id)) = (
+                            if image_bridge_active {
+                                file_upload::dropped_file(&events)
+                            } else {
+                                None
+                            },
+                            write_stream.active_id().clone(),
+                        ) {
+                            if file_upload_active {
+                                if let Some(shell) = state.shell.as_mut() {
+                                    shell.show_file_upload_notice(
+                                        "upload-busy",
+                                        "Upload in progress",
+                                        "Wait for the current upload to finish.".into(),
+                                    );
+                                    if let Some(frame) =
+                                        shell.compose(state.reported_size.0, state.reported_size.1)
+                                    {
+                                        state.present_frame(frame);
+                                    }
+                                }
+                                continue;
+                            }
+                            if let (Some(profile), Some(connection)) = (
+                                endpoint_catalog.ssh.iter().find(|p| p.id == profile_id),
+                                write_stream.connection(write_stream.active_id()),
+                            ) {
+                                let host = profile.target.clone();
+                                let endpoint = write_stream.active_id().clone();
+                                let generation = connection.generation;
+                                let tx = event_tx.clone();
+                                file_upload_active = true;
+                                if let Some(shell) = state.shell.as_mut() {
+                                    shell.show_file_upload_notice(
+                                        "upload-start",
+                                        "Upload started",
+                                        path.display().to_string(),
+                                    );
+                                    if let Some(frame) =
+                                        shell.compose(state.reported_size.0, state.reported_size.1)
+                                    {
+                                        state.present_frame(frame);
+                                    }
+                                }
+                                std::thread::spawn(move || {
+                                    let result =
+                                        file_upload::upload(&path, &host, |bytes, total| {
+                                            let _ = tx.try_send(
+                                                ClientLoopEvent::FileUploadProgress(bytes, total),
+                                            );
+                                        });
+                                    let _ = tx.blocking_send(ClientLoopEvent::FileUpload(
+                                        file_upload::UploadResult {
+                                            endpoint,
+                                            target,
+                                            generation,
+                                            result,
+                                        },
+                                    ));
+                                });
+                                continue;
+                            }
+                        }
                         if should_bridge_clipboard_image_events(
                             &events,
                             image_bridge_active,

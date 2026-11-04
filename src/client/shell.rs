@@ -191,14 +191,14 @@ fn status_icon(
         (
             StatusIndicatorStyle::Dots,
             AgentStatus::Working | AgentStatus::Blocked | AgentStatus::Done,
-        ) => "●",
-        (StatusIndicatorStyle::Dots, AgentStatus::Idle) => "○",
-        (StatusIndicatorStyle::Dots, AgentStatus::Unknown) => "·",
-        (StatusIndicatorStyle::Symbols, AgentStatus::Blocked) => "×",
-        (StatusIndicatorStyle::Symbols, AgentStatus::Working) => "◐",
-        (StatusIndicatorStyle::Symbols, AgentStatus::Done) => "✓",
-        (StatusIndicatorStyle::Symbols, AgentStatus::Idle) => "○",
-        (StatusIndicatorStyle::Symbols, AgentStatus::Unknown) => "·",
+        ) => "??,
+        (StatusIndicatorStyle::Dots, AgentStatus::Idle) => "??,
+        (StatusIndicatorStyle::Dots, AgentStatus::Unknown) => "繚",
+        (StatusIndicatorStyle::Symbols, AgentStatus::Blocked) => "?",
+        (StatusIndicatorStyle::Symbols, AgentStatus::Working) => "??,
+        (StatusIndicatorStyle::Symbols, AgentStatus::Done) => "??,
+        (StatusIndicatorStyle::Symbols, AgentStatus::Idle) => "??,
+        (StatusIndicatorStyle::Symbols, AgentStatus::Unknown) => "繚",
     }
 }
 
@@ -287,3 +287,9 @@ fn blit_pane_surface(target: &mut FrameData, source: &FrameData, area: Rect) {
 
 #[cfg(test)]
 mod tests;
+
+impl ClientShellState {
+    pub(crate) fn show_file_upload_notice(&mut self, code: &str, title: &str, body: String) {
+        self.push_endpoint_notice(ClientEndpointNoticeKind::Rejected, code, title, body);
+    }
+}

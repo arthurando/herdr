@@ -149,3 +149,13 @@ Sid uses runtime Tailscale preferred relay `20` (Hong Kong). Apply on Sid with `
 The live route check on 2026-10-28 measured ten Hong Kong replies at 189-192ms (median190ms), versus the Nuremberg baseline median381ms. All replies arrived and Sid VM SSH remained available. This measures network RTT, not key-to-echo or application-scroll latency. Confirm `Self.Relay` and actual `DERP(hkg)` ping output after reapplication. The ping tool can exit nonzero because no direct peer connection forms even when every relay reply arrives.
 
 The direct-input client is installed separately as `local.direct-input-20261028`. The original server stays running. Client-only activation uses the new executable with `client`; production client activation still requires the user's terminal. Do not replace the server to activate this presentation change.
+
+## Windows remote file drop
+
+A pasted absolute Windows drive path in a remote pane is treated as a file drop.
+Herdr transfers one file at a time over a separate noninteractive SSH process.
+It creates a unique directory under `~/herdr-uploads`, verifies SHA-256, and
+pastes a quoted path only when the original endpoint generation and pane remain
+active. The limit is 1 GiB. A failed or interrupted transfer can leave a
+partial file. If the pane changes, Herdr shows the verified path in a notice.
+The terminal does not distinguish a file drop from an ordinary path paste.

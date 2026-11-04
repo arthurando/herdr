@@ -36,5 +36,9 @@ pub(super) enum ClientLoopEvent {
         /// latest target have the same identity after restoration.
         force: bool,
     },
+    #[cfg(windows)]
+    FileUpload(super::file_upload::UploadResult),
+    #[cfg(windows)]
+    FileUploadProgress(u64, u64),
     Timer,
 }
