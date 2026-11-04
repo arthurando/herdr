@@ -271,6 +271,13 @@ pub(crate) struct ClientShellInput {
     pub actions: Vec<ClientShellAction>,
 }
 
+#[derive(Debug)]
+pub(super) struct ClientPendingInputOverlay {
+    pub(super) rows: Vec<String>,
+    pub(super) selected: usize,
+    pub(super) confirm_delete: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ClientShellMode {
     Terminal,
@@ -282,6 +289,7 @@ pub(super) enum ClientShellMode {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ClientShellOverlayKind {
+    PendingInput,
     LocalHistory,
     LocalCompose,
     Onboarding,
@@ -587,6 +595,7 @@ pub(super) struct ClientConfirmCloseOverlay {
 
 #[derive(Debug)]
 pub(super) enum ClientShellOverlay {
+    PendingInput(ClientPendingInputOverlay),
     LocalHistory(ClientLocalHistory),
     LocalCompose(ClientLocalCompose),
     Onboarding,
@@ -607,6 +616,7 @@ pub(super) enum ClientShellOverlay {
 impl ClientShellOverlay {
     pub(super) fn kind(&self) -> ClientShellOverlayKind {
         match self {
+            Self::PendingInput(_) => ClientShellOverlayKind::PendingInput,
             Self::LocalHistory(_) => ClientShellOverlayKind::LocalHistory,
             Self::LocalCompose(_) => ClientShellOverlayKind::LocalCompose,
             Self::Onboarding => ClientShellOverlayKind::Onboarding,
@@ -921,6 +931,7 @@ pub(crate) struct ClientShellState {
     pub(super) mode: ClientShellMode,
     pub(super) navigate_workspace_id: Option<WorkspaceNavigationTarget>,
     pub(super) pending_workspace_highlight: Option<PendingWorkspaceHighlight>,
+    pub(super) pending_workspace_inputs: Vec<PendingWorkspaceInput>,
     pub(super) reveal_navigation_workspace: bool,
     pub(super) overlay: Option<ClientShellOverlay>,
     pub(super) previous_pane_id: Option<String>,
@@ -1098,6 +1109,7 @@ impl ClientShellState {
             mode: ClientShellMode::Terminal,
             navigate_workspace_id: None,
             pending_workspace_highlight: None,
+            pending_workspace_inputs: Vec::new(),
             reveal_navigation_workspace: false,
             overlay,
             previous_pane_id: None,

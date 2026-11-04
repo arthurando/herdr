@@ -4,6 +4,7 @@ use super::*;
 pub(super) enum ClientGlobalMenuAction {
     LocalHistory,
     LocalCompose,
+    PendingInput,
     Binding(crate::input::KeybindAction),
     WhatsNew,
 }
@@ -54,6 +55,7 @@ pub(super) fn global_menu_items(
     ));
     items.push(("local text", ClientGlobalMenuAction::LocalHistory));
     items.push(("local compose", ClientGlobalMenuAction::LocalCompose));
+    items.push(("pending input", ClientGlobalMenuAction::PendingInput));
     items
 }
 
@@ -106,6 +108,7 @@ impl ClientShellState {
         match action {
             ClientGlobalMenuAction::LocalHistory => self.open_local_history(),
             ClientGlobalMenuAction::LocalCompose => self.open_local_compose(),
+            ClientGlobalMenuAction::PendingInput => self.open_pending_workspace_input(),
             ClientGlobalMenuAction::Binding(binding) => {
                 self.record_binding(crate::input::KeybindMatch::Action(binding), outcome)
             }

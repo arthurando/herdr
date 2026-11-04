@@ -369,6 +369,9 @@ impl ClientShellState {
             _ => false,
         };
         if changes_focus {
+            for entry in &mut self.pending_workspace_inputs {
+                entry.armed = false;
+            }
             outcome.repaint |= self.pending_workspace_highlight.take().is_some();
         }
         if !self.endpoint_is_online(&self.active_endpoint_id) {
@@ -540,6 +543,11 @@ impl ClientShellState {
                 .as_ref()
                 .is_some_and(|pending| pending.request_id == request_id)
             {
+                if let Some(target) = self.pending_workspace_highlight.as_ref().map(|pending| pending.target.clone()) {
+                    for entry in &mut self.pending_workspace_inputs {
+                        if entry.target == target { entry.armed = false; }
+                    }
+                }
                 self.pending_workspace_highlight = None;
             }
             let code = error.code.as_deref().unwrap_or("invalid_response");

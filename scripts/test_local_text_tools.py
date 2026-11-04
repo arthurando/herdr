@@ -143,6 +143,27 @@ try:
     client.action('\x1b', '__LOCAL_SENT_')
     client.action('\r', r'__LOCAL_SENT_\d+')
     receipt['checks']['remote_enter_still_executes_normally'] = True
+    cli('workspace', 'create', '--label', 'STALL_TEST', '--no-focus')
+    client.wait('STALL_TEST')
+    server.suspend(); suspended=True
+    client.proc.write('\x02w')
+    time.sleep(.2)
+    client.proc.write('\x1b[B')
+    time.sleep(.2)
+    client.proc.write('\r')
+    time.sleep(.2)
+    receipt['checks']['pending_input_notice_ms'] = client.action('echo __BUFFERED_STALL__', 'Input held in memory')
+    client.proc.write('\r')
+    server.resume(); suspended=False
+    client.wait('__BUFFERED_STALL__', timeout=20)
+    deadline=time.perf_counter()+10
+    remote_text=''
+    while time.perf_counter()<deadline:
+        remote_text=cli('pane','read','w2:p1','--source','visible')
+        if remote_text.count('__BUFFERED_STALL__') >= 2: break
+        time.sleep(.1)
+    assert remote_text.count('__BUFFERED_STALL__') >= 2, 'Buffered input did not reach the selected workspace'
+    receipt['checks']['buffered_input_executed_in_selected_workspace'] = True
     receipt['passed'] = True
 except Exception as error:
     receipt['passed'] = False; receipt['error'] = str(error)

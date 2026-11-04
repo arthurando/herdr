@@ -1,4 +1,5 @@
 use super::*;
+use ratatui::widgets::{Block, Borders, Widget};
 
 mod settings_overlay;
 mod worktree_overlays;
@@ -56,6 +57,23 @@ pub(crate) fn render_client_overlay(
         }
     }
     match o {
+        ClientShellOverlay::PendingInput(view) => {
+            let width = b.area.width.saturating_sub(4).min(80);
+            let height = b.area.height.saturating_sub(4).min(16);
+            if width < 8 || height < 5 { return None; }
+            let area = Rect::new(b.area.x + (b.area.width - width) / 2, b.area.y + (b.area.height - height) / 2, width, height);
+            let style = Style::default().fg(p.text).bg(p.panel_bg);
+            Block::default().title(" Pending input ").borders(Borders::ALL).style(style).render(area, b);
+            b.set_stringn(area.x + 1, area.y + 1, "Up/Down: select | Enter: select workspace | D twice: discard | Esc: close", usize::from(area.width.saturating_sub(2)), style);
+            for (index, row) in view.rows.iter().enumerate().take(usize::from(area.height.saturating_sub(4))) {
+                let marker = if index == view.selected { "> " } else { "  " };
+                b.set_stringn(area.x + 1, area.y + 2 + index as u16, format!("{marker}{row}"), usize::from(area.width.saturating_sub(2)), style);
+            }
+            if view.confirm_delete {
+                b.set_stringn(area.x + 1, area.bottom().saturating_sub(2), "Press D again to discard this entry.", usize::from(area.width.saturating_sub(2)), style);
+            }
+            Some(OverlayRender { area, ..Default::default() })
+        }
         ClientShellOverlay::LocalCompose(draft) => Some(OverlayRender {
             area: b.area,
             cursor: draft.render(b, p),

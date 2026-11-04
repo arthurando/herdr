@@ -677,6 +677,18 @@ async fn run_client_loop(
     #[cfg(windows)]
     let mut stdin_open = true;
     while !should_quit.load(Ordering::Acquire) {
+        if pending_activation.is_none() && write_stream.active_surface_available() {
+            let buffered = state.shell.as_mut().and_then(|shell| shell.take_ready_workspace_input());
+            if let Some(message) = buffered {
+                let sent = write_stream.send(&message);
+                if let Some(shell) = state.shell.as_mut() {
+                    shell.receive_endpoint_unavailable(format!(
+                        "Buffered input delivery is uncertain ({sent:?}). Check the remote pane before retrying."
+                    ));
+                }
+                state.request_repaint();
+            }
+        }
         if pending_activation.is_none() {
             if let Some(reload) = pending_catalog.take() {
                 match reload {

@@ -277,6 +277,9 @@ impl ClientShellState {
         target: ClientEndpointFocusTarget,
         outcome: &mut ClientShellInput,
     ) -> bool {
+        for entry in &mut self.pending_workspace_inputs {
+            entry.armed = false;
+        }
         #[cfg(windows)]
         if !self.notification_target_is_current(&endpoint_id, &target) {
             return false;
@@ -327,6 +330,9 @@ impl ClientShellState {
             if let (Some(target), Some(ClientShellAction::Endpoint { request, .. })) =
                 (workspace_preview, outcome.actions.get(action_index))
             {
+                for entry in &mut self.pending_workspace_inputs {
+                    entry.armed = entry.target == target && !entry.uncertain;
+                }
                 self.pending_workspace_highlight = Some(PendingWorkspaceHighlight {
                     target,
                     request_id: request.id.clone(),

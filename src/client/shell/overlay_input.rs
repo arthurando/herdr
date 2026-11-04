@@ -482,6 +482,10 @@ impl ClientShellState {
     ) {
         use crossterm::event::KeyModifiers;
 
+        if self.route_pending_workspace_input_key(key, outcome) {
+            return;
+        }
+
         if self.route_local_history_key(key, outcome) {
             return;
         }

@@ -380,29 +380,74 @@ impl ClientShellState {
             self.reconcile_input_source();
         }
         outcome.repaint |= self.resume_mobile_switcher_if_ready();
-        if self.pending_workspace_highlight.is_some() {
+        let mixed_focus = outcome.actions.iter().any(|action| match action {
+            ClientShellAction::ActivateEndpoint { .. } => true,
+            ClientShellAction::Endpoint { request, .. } => matches!(request.method,
+                crate::api::schema::Method::WorkspaceFocus(_)),
+            _ => false,
+        });
+        if mixed_focus || self.pending_workspace_highlight.is_some()
+            || self.pending_workspace_inputs.iter().any(|entry| entry.armed && !entry.uncertain)
+        {
+            let mut buffered = Vec::new();
             let mut blocked = false;
+            let mut pressed = Vec::new();
+            let buffer_target = self.pending_workspace_highlight.as_ref().map(|p| &p.target)
+                .or_else(|| self.pending_workspace_inputs.iter().find(|entry| entry.armed && !entry.uncertain).map(|entry| &entry.target));
+            if let Some(target) = buffer_target {
+                if let Some(entry) = self.pending_workspace_inputs.iter().find(|entry| &entry.target == target) {
+                    for event in &entry.events {
+                        if let ClientPaneInputEvent::Key { code, kind, .. } = event {
+                            match kind {
+                                crate::protocol::ClientKeyKind::Press => pressed.push(code.clone()),
+                                crate::protocol::ClientKeyKind::Release => pressed.retain(|held| held != code),
+                                crate::protocol::ClientKeyKind::Repeat => {},
+                            }
+                        }
+                    }
+                }
+            }
             for request in &mut outcome.requests {
-                if let ClientMessage::ClientShellPaneInput { events, .. }
-                    | ClientMessage::ClientShellPopupInput { events, .. } = request
-                {
+                if let ClientMessage::ClientShellPaneInput { events, .. } = request {
                     events.retain(|event| {
-                        let release = matches!(event,
-                            ClientPaneInputEvent::Key { kind: crate::protocol::ClientKeyKind::Release, .. }
-                            | ClientPaneInputEvent::Mouse { kind: crate::protocol::ClientMouseKind::Up(_), .. }
-                        );
-                        blocked |= !release;
-                        release
+                        match event {
+                            ClientPaneInputEvent::Mouse { kind: crate::protocol::ClientMouseKind::Up(_), .. } => true,
+                            ClientPaneInputEvent::Mouse { .. } => { blocked = true; false },
+                            ClientPaneInputEvent::Key { code, kind: crate::protocol::ClientKeyKind::Release, .. } if !pressed.contains(code) => true,
+                            ClientPaneInputEvent::Key { code, kind, .. } => {
+                                match kind {
+                                    crate::protocol::ClientKeyKind::Press => pressed.push(code.clone()),
+                                    crate::protocol::ClientKeyKind::Release => pressed.retain(|held| held != code),
+                                    crate::protocol::ClientKeyKind::Repeat => {},
+                                }
+                                buffered.push(event.clone());
+                                false
+                            }
+                            _ => { buffered.push(event.clone()); false }
+                        }
                     });
+                } else if let ClientMessage::ClientShellPopupInput { events, .. } = request {
+                    blocked |= !events.is_empty();
+                    events.clear();
                 }
             }
             outcome.requests.retain(|request| !matches!(request,
                 ClientMessage::ClientShellPaneInput { events, .. }
                     | ClientMessage::ClientShellPopupInput { events, .. } if events.is_empty()
             ));
-            if blocked {
+            if !buffered.is_empty() {
+                let message = if mixed_focus {
+                    "Input and selection arrived together. Input was not queued; retry it.".into()
+                } else {
+                    match self.buffer_workspace_input(buffered) {
+                        Ok(_) => "Input held in memory, not delivered. Closing Herdr loses it. Open pending input to review.".into(),
+                        Err(message) => message.to_owned(),
+                    }
+                };
+                outcome.repaint |= self.receive_endpoint_unavailable(message);
+            } else if blocked {
                 outcome.repaint |= self.receive_endpoint_unavailable(
-                    "Selection pending. Terminal input was not sent; retry after the view changes.".into(),
+                    "Selection pending. Pointer input was not sent.".into(),
                 );
             }
         }

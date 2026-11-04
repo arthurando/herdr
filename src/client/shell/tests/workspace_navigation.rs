@@ -951,8 +951,93 @@ fn direct_workspace_selection_shows_pending_highlight_without_server_reply() {
         request, ClientMessage::ClientShellPaneInput { .. }
     )));
     assert!(state.visible_endpoint_notice.as_ref().is_some_and(|notice|
-        notice.body.contains("Terminal input was not sent")
+        notice.body.contains("Input held in memory, not delivered")
     ));
+    assert!(!state.pending_workspace_inputs.is_empty());
+}
+
+#[test]
+fn buffered_input_waits_for_matching_workspace_surface_and_is_never_replayed() {
+    let mut state = local_navigation_state(false);
+    request_local_navigation(&mut state, 2);
+    let output = state.handle_input_bytes(b"hello");
+    assert!(!output.requests.iter().any(|r| matches!(r, ClientMessage::ClientShellPaneInput { .. })));
+    assert!(state.take_ready_workspace_input().is_none());
+    let mut next = workspaces(3);
+    next.revision = 2;
+    next.focused_workspace_id = Some("ws_3".into());
+    next.panes[0].workspace_id = "ws_3".into();
+    state.set_snapshot(Box::new(next));
+    assert!(state.take_ready_workspace_input().is_none(), "stale surface cannot release input");
+    let mut frame = surface();
+    frame.projection_revision = 2;
+    state.set_pane_surface(frame);
+    assert!(matches!(state.take_ready_workspace_input(), Some(ClientMessage::ClientShellPaneInput { .. })));
+    assert!(state.pending_workspace_inputs[0].uncertain);
+    assert!(state.take_ready_workspace_input().is_none(), "uncertain input must never be replayed automatically");
+}
+
+#[test]
+fn superseding_workspace_selection_disarms_its_buffer() {
+    let mut state = local_navigation_state(false);
+    request_local_navigation(&mut state, 2);
+    state.handle_input_bytes(b"hello");
+    let mut outcome = ClientShellInput::default();
+    state.focus_or_activate(ClientEndpointId::Local, ClientEndpointFocusTarget::Workspace("ws_2".into()), &mut outcome);
+    assert!(!state.pending_workspace_inputs[0].armed);
+    let mut next = workspaces(3);
+    next.revision = 2;
+    next.focused_workspace_id = Some("ws_3".into());
+    next.panes[0].workspace_id = "ws_3".into();
+    state.set_snapshot(Box::new(next));
+    let mut frame = surface();
+    frame.projection_revision = 2;
+    state.set_pane_surface(frame);
+    assert!(state.take_ready_workspace_input().is_none());
+    assert!(!state.pending_workspace_inputs[0].uncertain);
+}
+
+#[test]
+fn cancelled_focus_retains_but_disarms_unsent_input() {
+    let mut state = local_navigation_state(false);
+    let request = request_local_navigation(&mut state, 2);
+    state.handle_input_bytes(b"hello");
+    state.cancel_endpoint_request(&request);
+    assert!(!state.pending_workspace_inputs[0].armed);
+    assert!(!state.pending_workspace_inputs[0].uncertain);
+    state.open_pending_workspace_input();
+    let Some(ClientShellOverlay::PendingInput(view)) = &state.overlay else { panic!("missing recovery view") };
+    assert!(view.rows[0].contains("unsent"));
+    assert!(!view.rows[0].contains("hello"), "input text must remain masked");
+}
+
+#[test]
+fn recovery_requires_explicit_double_discard_and_never_replays_uncertain_input() {
+    let mut state = local_navigation_state(false);
+    request_local_navigation(&mut state, 2);
+    state.handle_input_bytes(b"secret");
+    state.pending_workspace_inputs[0].uncertain = true;
+    state.open_pending_workspace_input();
+    let enter = crate::input::TerminalKey::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
+    let mut outcome = ClientShellInput::default();
+    assert!(state.route_pending_workspace_input_key(&enter, &mut outcome));
+    assert!(outcome.actions.is_empty());
+    let discard = crate::input::TerminalKey::new(KeyCode::Char('d'), crossterm::event::KeyModifiers::NONE);
+    state.route_pending_workspace_input_key(&discard, &mut outcome);
+    assert_eq!(state.pending_workspace_inputs.len(), 1);
+    state.route_pending_workspace_input_key(&discard, &mut outcome);
+    assert!(state.pending_workspace_inputs.is_empty());
+}
+
+#[test]
+fn focus_and_text_in_one_input_batch_are_not_assigned_to_the_wrong_workspace() {
+    let mut state = local_navigation_state(false);
+    enter_navigation(&mut state);
+    preview_key(&mut state, b"\x1b[B");
+    let outcome = state.handle_input_bytes(b"\rhello");
+    assert!(!outcome.requests.iter().any(|r| matches!(r, ClientMessage::ClientShellPaneInput { .. })));
+    assert!(state.pending_workspace_inputs.is_empty());
+    assert!(state.visible_endpoint_notice.as_ref().is_some_and(|notice| notice.body.contains("not queued")));
 }
 
 #[test]

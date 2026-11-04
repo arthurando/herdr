@@ -16,6 +16,14 @@ pub(super) struct PendingWorkspaceHighlight {
     pub(super) expires_at: Option<std::time::Instant>,
 }
 
+/// Input remains bound to the selection that received it, including its boot and generation.
+pub(super) struct PendingWorkspaceInput {
+    pub(super) target: WorkspaceNavigationTarget,
+    pub(super) events: Vec<crate::protocol::ClientPaneInputEvent>,
+    pub(super) uncertain: bool,
+    pub(super) armed: bool,
+}
+
 impl WorkspaceNavigationTarget {
     pub(super) fn matches(&self, endpoint_id: &ClientEndpointId, workspace_id: &str) -> bool {
         &self.endpoint_id == endpoint_id && self.workspace_id == workspace_id
@@ -23,6 +31,140 @@ impl WorkspaceNavigationTarget {
 }
 
 impl ClientShellState {
+    fn pending_input_rows(&self) -> Vec<String> {
+        if self.pending_workspace_inputs.is_empty() {
+            return vec!["No pending input".into()];
+        }
+        self.pending_workspace_inputs.iter().map(|entry| format!(
+            "{} / {}: {} events - {}",
+            self.endpoint_label(&entry.target.endpoint_id), entry.target.workspace_id,
+            entry.events.len(), if entry.uncertain { "delivery uncertain; check remote" } else { "unsent" }
+        )).collect()
+    }
+
+    pub(super) fn open_pending_workspace_input(&mut self) {
+        self.overlay = Some(ClientShellOverlay::PendingInput(ClientPendingInputOverlay {
+            rows: self.pending_input_rows(), selected: 0, confirm_delete: false,
+        }));
+    }
+
+    pub(super) fn route_pending_workspace_input_key(&mut self, key: &crate::input::TerminalKey, outcome: &mut ClientShellInput) -> bool {
+        let Some(ClientShellOverlay::PendingInput(view)) = self.overlay.as_ref() else { return false; };
+        if key.kind != crossterm::event::KeyEventKind::Press { return true; }
+        let selected = view.selected;
+        let confirm = view.confirm_delete;
+        match key.code {
+            KeyCode::Esc => self.overlay = None,
+            KeyCode::Up | KeyCode::Down => {
+                let delta = if key.code == KeyCode::Up { -1 } else { 1 };
+                if let Some(ClientShellOverlay::PendingInput(view)) = self.overlay.as_mut() {
+                    view.selected = (view.selected as isize + delta).clamp(0, view.rows.len().saturating_sub(1) as isize) as usize;
+                    view.confirm_delete = false;
+                }
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') if selected < self.pending_workspace_inputs.len() => {
+                if confirm {
+                    self.pending_workspace_inputs.remove(selected);
+                    self.open_pending_workspace_input();
+                } else if let Some(ClientShellOverlay::PendingInput(view)) = self.overlay.as_mut() {
+                    view.confirm_delete = true;
+                }
+            }
+            KeyCode::Enter if selected < self.pending_workspace_inputs.len() => {
+                let entry = &self.pending_workspace_inputs[selected];
+                if entry.uncertain {
+                    self.receive_endpoint_unavailable("Delivery is uncertain. Check the remote pane; do not retry blindly.".into());
+                } else {
+                    let target = entry.target.clone();
+                    if !self.navigation_target_valid(&target) {
+                        self.receive_endpoint_unavailable("Original workspace identity changed. Input remains unsent.".into());
+                        outcome.repaint = true;
+                        return true;
+                    }
+                    self.overlay = None;
+                    if self.focus_or_activate(target.endpoint_id.clone(), ClientEndpointFocusTarget::Workspace(target.workspace_id.clone()), outcome) {
+                        if let Some(entry) = self.pending_workspace_inputs.iter_mut().find(|entry| entry.target == target && !entry.uncertain) {
+                            entry.armed = true;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        outcome.repaint = true;
+        true
+    }
+
+    pub(crate) fn take_ready_workspace_input(&mut self) -> Option<crate::protocol::ClientMessage> {
+        let snapshot = self.snapshot.as_deref()?;
+        let workspace_id = snapshot.focused_workspace_id.as_deref()?;
+        let pane_id = snapshot.focused_pane_id.as_deref()?;
+        let surface = self.pane_surface.as_ref()?;
+        if surface.boot_id != snapshot.boot_id || surface.projection_revision != snapshot.revision
+            || !surface.panes.iter().any(|pane| pane.focused && pane.pane_id == pane_id)
+            || !snapshot.panes.iter().any(|pane| pane.pane_id == pane_id && pane.workspace_id == workspace_id)
+        {
+            return None;
+        }
+        if self.pending_workspace_highlight.as_ref().is_some_and(|pending|
+            !pending.target.matches(&self.active_endpoint_id, workspace_id))
+        {
+            return None;
+        }
+        let index = self.pending_workspace_inputs.iter().position(|entry|
+            !entry.uncertain && entry.armed && !entry.events.is_empty()
+                && entry.target.matches(&self.active_endpoint_id, workspace_id)
+                && entry.target.boot_id == snapshot.boot_id
+                && entry.target.generation == self.active_snapshot_generation
+        )?;
+        let entry = &mut self.pending_workspace_inputs[index];
+        entry.uncertain = true;
+        Some(crate::protocol::ClientMessage::ClientShellPaneInput {
+            pane_id: pane_id.to_owned(), events: entry.events.clone(),
+        })
+    }
+
+    pub(super) fn buffer_workspace_input(
+        &mut self,
+        events: Vec<crate::protocol::ClientPaneInputEvent>,
+    ) -> Result<usize, &'static str> {
+        let target = self.pending_workspace_highlight.as_ref().map(|pending| pending.target.clone())
+            .or_else(|| self.pending_workspace_inputs.iter().find(|entry| entry.armed && !entry.uncertain).map(|entry| entry.target.clone()))
+            .ok_or("No workspace selection is pending")?;
+        let existing = self.pending_workspace_inputs.iter().position(|entry| entry.target == target);
+        if existing.is_none() && self.pending_workspace_inputs.len() >= 8 {
+            return Err("Pending input limit reached; no input was queued");
+        }
+        let index = match existing {
+            Some(index) => index,
+            None => {
+                self.pending_workspace_inputs.push(PendingWorkspaceInput {
+                    target, events: Vec::new(), uncertain: false, armed: true,
+                });
+                self.pending_workspace_inputs.len() - 1
+            }
+        };
+        let entry = &mut self.pending_workspace_inputs[index];
+        if entry.uncertain {
+            return Err("Previous delivery is uncertain; no input was queued");
+        }
+        let size = |events: &[crate::protocol::ClientPaneInputEvent]| -> usize {
+            events.iter().map(|event| match event {
+                crate::protocol::ClientPaneInputEvent::TextCommit(text)
+                | crate::protocol::ClientPaneInputEvent::Paste(text) => text.len(),
+                crate::protocol::ClientPaneInputEvent::Key { generated_text: Some(text), .. } => 64 + text.len(),
+                _ => 64,
+            }).sum()
+        };
+        if entry.events.len().saturating_add(events.len()) > 2048
+            || size(&entry.events).saturating_add(size(&events)) > 131_072
+        {
+            return Err("Pending input limit reached; no input was queued");
+        }
+        entry.events.extend(events);
+        Ok(entry.events.len())
+    }
+
     pub(crate) fn tick_workspace_highlight(&mut self, now: std::time::Instant) -> bool {
         if self
             .pending_workspace_highlight
@@ -30,6 +172,11 @@ impl ClientShellState {
             .and_then(|pending| pending.expires_at)
             .is_some_and(|expires_at| now >= expires_at)
         {
+            if let Some(target) = self.pending_workspace_highlight.as_ref().map(|pending| pending.target.clone()) {
+                for entry in &mut self.pending_workspace_inputs {
+                    if entry.target == target { entry.armed = false; }
+                }
+            }
             self.pending_workspace_highlight = None;
             return true;
         }
