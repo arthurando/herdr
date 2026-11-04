@@ -143,8 +143,13 @@ impl PendingEndpointActivation {
             !self.target.endpoint_id.is_local(),
         );
         let source_is_target = self.source.endpoint_id == self.target.endpoint_id;
-        // Local must not depend on a remote acknowledgement to become usable.
-        if source_is_target || !self.source_available || self.target.endpoint_id.is_local() {
+        // A remote source must not hold another machine's activation while it is stalled.
+        // Its release and later reactivation remain ordered on that source's transport.
+        if source_is_target
+            || !self.source_available
+            || self.target.endpoint_id.is_local()
+            || !self.source.endpoint_id.is_local()
+        {
             if self.source_available && !source_is_target {
                 release_surface_best_effort(
                     &self.source,

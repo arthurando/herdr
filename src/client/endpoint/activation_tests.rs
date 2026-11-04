@@ -408,6 +408,47 @@ fn source_release_is_sent_and_acknowledged_before_target_activation() {
 }
 
 #[test]
+fn stalled_remote_source_does_not_block_another_remote_activation() {
+    let (mut shell, mut endpoints, _local_sent, source_sent) = shell_and_registry();
+    let source = endpoint();
+    let profile = super::super::SavedSshEndpoint {
+        id: super::super::ProfileId::parse("11111111111111111111111111111111").unwrap(),
+        label: "Other".into(),
+        target: "other@example.com".into(),
+        session: "main".into(),
+        enabled: true,
+    };
+    let target = ClientEndpointId::Ssh(profile.id.clone());
+    let source_profile = super::super::SavedSshEndpoint {
+        id: super::super::ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
+        label: "Remote".into(),
+        target: "dev@example.com".into(),
+        session: "main".into(),
+        enabled: true,
+    };
+    shell.set_endpoint_catalog(&[source_profile, profile]);
+    shell.set_endpoint_status(&target, ClientEndpointStatus::Online);
+    shell.set_endpoint_snapshot(&target, Box::new(test_snapshot("other-boot", 1)));
+    let target_sent = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    endpoints.insert(
+        target.clone(),
+        FakeTransport { sent: target_sent.clone(), fail_after_write: false },
+        9,
+        negotiation(),
+        false,
+    );
+    endpoints.set_surface_active(&source, true);
+    assert!(endpoints.set_active(&source));
+
+    let _activation = PendingEndpointActivation::begin(
+        &shell, &mut endpoints, target, None, resize(), 901, Instant::now(),
+    ).unwrap();
+    assert!(source_sent.lock().unwrap().iter().any(|message| surface_set_active(message) == Some(false)));
+    assert!(target_sent.lock().unwrap().iter().any(|message| surface_set_active(message) == Some(true)), "target must start without a source response");
+    assert!(!endpoints.active_surface_available(), "input remains fenced until the target is coherent");
+}
+
+#[test]
 fn activation_requires_an_exact_snapshot_surface_revision_pair() {
     let mut activation = machine();
     let target = endpoint();

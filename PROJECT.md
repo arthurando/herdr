@@ -114,6 +114,11 @@ remote echo, remote application wheel response or cross-machine latency.
 
 ## Endpoint activation latency
 
+When leaving a remote endpoint, the client sends its surface release without waiting
+for an acknowledgement before it starts another endpoint. Target input stays fenced
+until its coherent surface and presentation effects arrive. This avoids one stalled
+source blocking a healthy target; it does not make remote terminal echo local.
+
 The client pipelines the presentation-effects fence after the second surface-sync request on the same ordered transport. This starts only after the initial coherent target commit. Input remains frozen until both the coherent revision/geometry frame and the matching effects token arrive. Each resync uses unique request and fence identifiers, so resize and focus changes reject stale acknowledgements. This removes one serial network round trip from machine activation; it does not reduce ordinary remote typing echo time. The delayed fake-endpoint test compares sequential and overlapping response schedules; live verification remains separate.
 
 
