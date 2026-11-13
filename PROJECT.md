@@ -219,3 +219,12 @@ The machine name retains activation and (+) retains session creation. Choices pe
 by endpoint identity in client chrome preferences. Omen replaces the local machine label.
 SID profiles follow other remote machines and start collapsed when no saved choice exists.
 Keyboard session navigation can reveal a hidden target. No server or protocol change is required.
+
+## Native build cache in nested worktrees
+
+Cargo merges .cargo/config.toml arrays from a task worktree and its parent repository.
+A nested worktree can therefore duplicate the static CRT rustflag and miss the shared cache.
+For native Windows checks and release builds, set `RUSTFLAGS=-C target-feature=+crt-static`
+explicitly and keep `CARGO_BUILD_JOBS=1`. Initialize the installed Visual Studio vcvars64
+before Cargo. Reuse the existing `CARGO_TARGET_DIR` and installed Zig executable.
+This avoids a full dependency rebuild; it does not change product compiler settings.
