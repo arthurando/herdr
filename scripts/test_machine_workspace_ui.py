@@ -90,6 +90,7 @@ try:
     machine_label = 'Local' if mode == 'before' else 'Omen'
     assert any(machine_label in line for line in lines), machine_label + ' machine row is absent'
     if mode == 'after':
+        before = cli('workspace', 'list')
         machine_y = next(y for y, line in enumerate(lines) if 'Omen' in line and '(+)' in line)
         def disclosure():
             proc.write(f'\x1b[<0;2;{machine_y + 1}M\x1b[<0;2;{machine_y + 1}m')
