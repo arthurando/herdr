@@ -437,7 +437,7 @@ pub(super) fn render(
                     .unwrap_or(0);
                 for column in 0..width {
                     buffer[(area.x + 4 + column, y)]
-                        .set_symbol(if column < fill { "▰" } else { "▱" })
+                        .set_symbol(if column < fill { "█" } else { "░" })
                         .set_style(Style::default().fg(if column < fill {
                             color
                         } else {
