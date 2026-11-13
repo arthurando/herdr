@@ -608,8 +608,11 @@ pub(super) fn render_expanded(
                 }
                 let rect = Rect::new(body.x, y, content_width, height);
                 let padding = u16::from(rect.height >= 3);
-                let nested = Rect::new(
-                    rect.x.saturating_add(2),
+                let current = &endpoint.endpoint_id == state.active_endpoint_id
+                    && workspace.focused
+                    && endpoint.status == ClientEndpointStatus::Online;
+                let mut nested = Rect::new(
+                    rect.x.saturating_add(if current { 1 } else { 2 }),
                     rect.y.saturating_add(padding),
                     rect.width.saturating_sub(2),
                     rect.height.saturating_sub(2 * padding),
@@ -648,6 +651,22 @@ pub(super) fn render_expanded(
                     Color::Rgb(r, g, b)
                 };
                 buffer.set_style(rect, Style::default().bg(background));
+                let group_toggle = super::sidebar::render_parent_group_toggle(
+                    buffer,
+                    Rect::new(
+                        rect.x,
+                        nested.y,
+                        rect.width.saturating_sub(u16::from(current)),
+                        1,
+                    ),
+                    snapshot,
+                    entry.index,
+                    collapsed_groups,
+                    palette,
+                );
+                if current && group_toggle.is_some() {
+                    nested.width = nested.width.saturating_sub(1);
+                }
                 if let Some(agent) = single_agent {
                     super::agent_sidebar::render_agent_row(buffer, nested, &agent.agent, config);
                 } else {
@@ -674,14 +693,24 @@ pub(super) fn render_expanded(
                             .add_modifier(Modifier::DIM),
                     );
                 }
-                let group_toggle = super::sidebar::render_parent_group_toggle(
-                    buffer,
-                    Rect::new(rect.x, nested.y, rect.width, 1),
-                    snapshot,
-                    entry.index,
-                    collapsed_groups,
-                    palette,
-                );
+                if current {
+                    ratatui::widgets::Widget::render(
+                        ratatui::widgets::Block::default()
+                            .borders(if rect.height >= 3 {
+                                ratatui::widgets::Borders::ALL
+                            } else {
+                                ratatui::widgets::Borders::LEFT | ratatui::widgets::Borders::RIGHT
+                            })
+                            .border_type(ratatui::widgets::BorderType::Rounded)
+                            .border_style(
+                                Style::default()
+                                    .fg(palette.accent)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                        rect,
+                        buffer,
+                    );
+                }
                 hits.workspaces.push(WorkspaceHit {
                     rect,
                     endpoint_id: endpoint.endpoint_id.clone(),

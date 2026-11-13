@@ -408,7 +408,6 @@ fn mobile_background_workspace_uses_its_own_active_tab_status() {
 #[test]
 fn mobile_switcher_create_and_menu_rows_reuse_client_actions() {
     let mut config = ClientShellConfig::from_config(&Config::default());
-    config.prompt_new_workspace_name = true;
     config.prompt_new_tab_name = true;
     let mut state = ClientShellState::new(config);
     state.set_snapshot(Box::new(snapshot()));

@@ -80,6 +80,9 @@ fn shell_new_controls_use_the_same_client_action_routes_as_keybinds() {
             row: new_workspace.y,
             modifiers: KeyModifiers::empty(),
         })]);
+    assert!(create_workspace.actions.is_empty());
+    assert!(matches!(state.overlay, Some(ClientShellOverlay::Rename(_))));
+    let create_workspace = state.handle_input_bytes(b"\r");
     let [ClientShellAction::Endpoint { request, .. }] = &create_workspace.actions[..] else {
         panic!("new workspace click should use the endpoint API");
     };

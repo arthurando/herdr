@@ -3231,7 +3231,6 @@ fn terminal_sessions_do_not_duplicate_detected_agents_or_escape_legacy_filter() 
 #[test]
 fn machine_plus_waits_for_target_activation_and_creates_once() {
     let (mut state, remote) = state_with_remote();
-    state.config.prompt_new_workspace_name = false;
     state.compose(100, 28).unwrap();
     let hit = state
         .hits
@@ -3251,7 +3250,10 @@ fn machine_plus_waits_for_target_activation_and_creates_once() {
         matches!(outcome.actions.as_slice(), [ClientShellAction::ActivateEndpoint { endpoint_id, target: None }] if endpoint_id == &remote)
     );
     assert!(state.activate_endpoint_projection(&remote));
-    let outcome = state.complete_machine_workspace();
+    let mut outcome = state.complete_machine_workspace();
+    assert!(outcome.actions.is_empty());
+    assert!(matches!(state.overlay, Some(ClientShellOverlay::Rename(_))));
+    state.save_rename_overlay(&mut outcome);
     assert!(
         matches!(outcome.actions.as_slice(), [ClientShellAction::Endpoint { endpoint_id, request, .. }] if endpoint_id == &remote && matches!(request.method, crate::api::schema::Method::WorkspaceCreate(_)))
     );
@@ -3261,7 +3263,6 @@ fn machine_plus_waits_for_target_activation_and_creates_once() {
 #[test]
 fn machine_plus_preserves_name_prompt_and_cancels_stale_intent() {
     let (mut state, remote) = state_with_remote();
-    state.config.prompt_new_workspace_name = true;
     state.pending_machine_workspace = Some(remote.clone());
     state.retain_machine_workspace(&ClientEndpointId::Local, false);
     assert!(state.complete_machine_workspace().actions.is_empty());
@@ -3300,7 +3301,6 @@ fn offline_machine_plus_does_not_create_on_active_machine() {
 #[test]
 fn local_machine_plus_from_remote_waits_then_uses_local_snapshot() {
     let (mut state, remote) = state_with_remote();
-    state.config.prompt_new_workspace_name = false;
     assert!(state.activate_endpoint_projection(&remote));
     state.compose(100, 28).unwrap();
     let hit = state
@@ -3320,7 +3320,10 @@ fn local_machine_plus_from_remote_waits_then_uses_local_snapshot() {
         }]
     ));
     assert!(state.activate_endpoint_projection(&ClientEndpointId::Local));
-    let outcome = state.complete_machine_workspace();
+    let mut outcome = state.complete_machine_workspace();
+    assert!(outcome.actions.is_empty());
+    assert!(matches!(state.overlay, Some(ClientShellOverlay::Rename(_))));
+    state.save_rename_overlay(&mut outcome);
     assert!(
         matches!(outcome.actions.as_slice(), [ClientShellAction::Endpoint { endpoint_id: ClientEndpointId::Local, boot_id, request, .. }] if boot_id == &snapshot().boot_id && matches!(request.method, crate::api::schema::Method::WorkspaceCreate(_)))
     );
@@ -3345,4 +3348,50 @@ fn long_machine_name_keeps_plus_and_status_hit_areas_separate() {
     assert_eq!(hit.new_workspace.width, 3);
     assert!(hit.new_workspace.right() < hit.status_badge.x);
     assert!(state.hits.new_workspace.is_empty());
+}
+
+#[test]
+fn current_session_border_moves_with_the_active_machine() {
+    let (mut state, remote) = state_with_remote();
+    for active in [ClientEndpointId::Local, remote.clone()] {
+        assert!(state.activate_endpoint_projection(&active));
+        let frame = state.compose(100, 28).unwrap().to_ratatui_buffer().unwrap();
+        for hit in &state.hits.workspaces {
+            let cell = &frame[(hit.rect.x, hit.rect.y)];
+            if hit.endpoint_id == active {
+                assert_eq!(cell.symbol(), "\u{256d}");
+                assert_eq!(cell.fg, state.config.palette.accent);
+                assert!(cell.modifier.contains(Modifier::BOLD));
+            } else {
+                assert_ne!(cell.symbol(), "\u{256d}");
+            }
+        }
+    }
+}
+
+#[test]
+fn new_session_shortcut_requires_name_confirmation_and_cancel_creates_nothing() {
+    let mut config = Config::default();
+    config.ui.prompt_new_workspace_name = false;
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    let mut outcome = ClientShellInput::default();
+    state.record_binding(
+        crate::input::KeybindMatch::Action(crate::input::KeybindAction::NewWorkspace),
+        &mut outcome,
+    );
+    assert!(outcome.actions.is_empty());
+    assert!(state.overlay.is_some());
+    assert!(state.handle_input_bytes(b"\x1b").actions.is_empty());
+    assert!(state.overlay.is_none());
+    state.record_binding(
+        crate::input::KeybindMatch::Action(crate::input::KeybindAction::NewWorkspace),
+        &mut outcome,
+    );
+    state.handle_input_bytes(b"My new session");
+    let confirmed = state.handle_input_bytes(b"\r");
+    assert!(
+        matches!(confirmed.actions.as_slice(), [ClientShellAction::Endpoint { request, .. }] if matches!(&request.method, crate::api::schema::Method::WorkspaceCreate(params) if params.label.as_deref() == Some("My new session")))
+    );
 }

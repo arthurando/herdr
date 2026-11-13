@@ -90,6 +90,17 @@ try:
         x, y = matches[0]
         before = cli('workspace', 'list')
         proc.write(f'\x1b[<0;{x + 1};{y + 1}M\x1b[<0;{x + 1};{y + 1}m')
+        time.sleep(1)
+        prompted = cli('workspace', 'list')
+        assert prompted == before, 'the naming popup must not create a session'
+        popup = capture('name-popup')
+        assert any('new session' in line for line in popup), 'name popup is absent'
+        proc.write('\x1b')
+        time.sleep(.5)
+        assert cli('workspace', 'list') == before, 'cancel must not create a session'
+        proc.write(f'\x1b[<0;{x + 1};{y + 1}M\x1b[<0;{x + 1};{y + 1}m')
+        time.sleep(.5)
+        proc.write('Machine session test\r')
         time.sleep(2)
         after = cli('workspace', 'list')
         (root / 'before-click.json').write_text(before)
@@ -97,7 +108,10 @@ try:
         old_ids = {item['workspace_id'] for item in json.loads(before)['result']['workspaces']}
         new_ids = {item['workspace_id'] for item in json.loads(after)['result']['workspaces']}
         assert old_ids < new_ids and len(new_ids - old_ids) == 1, 'click must add exactly one workspace'
-        capture('created-session')
+        added = [item for item in json.loads(after)['result']['workspaces'] if item['workspace_id'] not in old_ids]
+        assert added[0]['label'] == 'Machine session test', 'confirmed name was not saved'
+        created = capture('created-session')
+        assert any('\u256d' in line for line in created), 'current session border is absent'
     (root / 'raw.ansi').write_text(''.join(raw), encoding='utf-8')
     print(json.dumps({'mode': mode, 'result': 'PASS', 'artifact': str(root)}))
 finally:
