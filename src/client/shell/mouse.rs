@@ -511,7 +511,7 @@ impl ClientShellState {
     fn workspace_drop_target_at(&self, point: (u16, u16)) -> Option<(Option<String>, u16)> {
         if self.hits.workspace_body.height == 0
             || point.1 < self.hits.workspace_body.y.saturating_sub(1)
-            || point.1 >= self.hits.global_launcher.y
+            || point.1 >= self.hits.workspace_body.bottom()
             || self.hits.workspaces.iter().any(|hit| {
                 hit.endpoint_id != self.active_endpoint_id && super::contains(hit.rect, point)
             })
@@ -573,7 +573,7 @@ impl ClientShellState {
                     .map(|workspace| workspace.workspace_id.clone())
             });
             let row = last_hit.rect.bottom();
-            if row < self.hits.global_launcher.y {
+            if row < self.hits.workspace_body.bottom() {
                 slots.push((before, row));
             }
         }
@@ -1901,6 +1901,14 @@ impl ClientShellState {
                     outcome,
                 );
             }
+            MouseEventKind::ScrollUp if super::contains(self.hits.monitor_body, point) => {
+                self.machine_monitor.scroll = self.machine_monitor.scroll.saturating_sub(3);
+                outcome.repaint = true;
+            }
+            MouseEventKind::ScrollDown if super::contains(self.hits.monitor_body, point) => {
+                self.machine_monitor.scroll = self.machine_monitor.scroll.saturating_add(3).min(self.hits.monitor_max_scroll);
+                outcome.repaint = true;
+            }
             MouseEventKind::ScrollUp if super::contains(self.hits.archive_body, point) => {
                 self.archive.scroll = self.archive.scroll.saturating_sub(1);
                 outcome.repaint = true;
@@ -2058,6 +2066,13 @@ impl ClientShellState {
                 }
                 if super::contains(self.hits.archive_toggle, point) {
                     self.toggle_archive(outcome);
+                    return;
+                }
+                if super::contains(self.hits.monitor_toggle, point) {
+                    self.machine_monitor.expanded = !self.machine_monitor.expanded;
+                    self.machine_monitor.scroll = 0;
+                    self.persist_chrome_preferences(outcome);
+                    outcome.repaint = true;
                     return;
                 }
                 if let Some(id) = self

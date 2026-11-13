@@ -10,7 +10,7 @@ import pyte
 from PIL import Image, ImageDraw, ImageFont
 exe = str(Path(sys.argv[1]).resolve())
 root = Path(sys.argv[2]).resolve()
-mode = 'before' if '--baseline' in sys.argv[3:] else 'after'
+mode = 'monitor' if '--monitor-snapshot' in sys.argv[3:] else ('before' if '--baseline' in sys.argv[3:] else 'after')
 root.mkdir(parents=True, exist_ok=False)
 env = os.environ.copy()
 for key in list(env):
@@ -20,13 +20,20 @@ env.update(XDG_CONFIG_HOME=str(root / 'config'), XDG_STATE_HOME=str(root / 'stat
 config = root / 'test.toml'
 config.write_text('onboarding = false\n[terminal]\ndefault_shell = "cmd.exe"\n[ui]\nmouse_capture = true\nsidebar_start_collapsed = false\nprompt_new_workspace_name = false\n')
 env['HERDR_CONFIG_PATH'] = str(config)
+monitor_file = None
+if mode == 'monitor':
+    source = Path(sys.argv[sys.argv.index('--monitor-snapshot') + 1])
+    monitor_file = root / 'monitor.json'
+    monitor_file.write_bytes(source.read_bytes())
+    env['HERDR_MONITOR_FILE'] = str(monitor_file)
 
 def cli(*args):
     r = subprocess.run([exe, *args], env=env, cwd=root, capture_output=True, text=True, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW, timeout=15)
     if r.returncode:
         raise RuntimeError(str(args) + ': ' + r.stdout + r.stderr)
     return r.stdout
-screen = pyte.Screen(100, 28)
+columns, rows = (100, 42) if mode == 'monitor' else (100, 28)
+screen = pyte.Screen(columns, rows)
 stream = pyte.Stream(screen)
 lock = threading.Lock()
 raw = []
@@ -44,7 +51,7 @@ try:
     else:
         raise RuntimeError('fixture server did not start')
     (root / 'initial-workspaces.json').write_text(before)
-    proc = PtyProcess.spawn([exe, 'client'], env=env, cwd=str(root), dimensions=(28, 100))
+    proc = PtyProcess.spawn([exe, 'client'], env=env, cwd=str(root), dimensions=(rows, columns))
 
     def read():
         while proc.isalive():
@@ -62,12 +69,12 @@ try:
     def capture(name):
         with lock:
             lines = screen.display[:]
-            img = Image.new('RGB', (1000, 560), (25, 25, 35))
+            img = Image.new('RGB', (columns * 10, rows * 20), (25, 25, 35))
             draw = ImageDraw.Draw(img)
             font = ImageFont.truetype(str(Path(os.environ['WINDIR']) / 'Fonts' / 'consola.ttf'), 17)
             colours = {'default': '#dddddd', 'black': '#000000', 'white': '#ffffff', 'red': '#cd3131', 'green': '#0dbc79', 'yellow': '#e5e510', 'blue': '#2472c8', 'magenta': '#bc3fbc', 'cyan': '#11a8cd'}
-            for y in range(28):
-                for x in range(100):
+            for y in range(rows):
+                for x in range(columns):
                     c = screen.buffer[y][x]
 
                     def colour(v, default):
@@ -81,6 +88,27 @@ try:
         return lines
     lines = capture('sidebar')
     assert any('Local' in line for line in lines), 'Local machine row is absent'
+    if mode == 'monitor':
+        assert not any('Sid VM' in line for line in lines), 'monitor should start collapsed'
+        x, y = next((line.index('Monitor'), y) for y, line in enumerate(lines) if 'Monitor' in line)
+        def click_monitor():
+            proc.write(f'\x1b[<0;{x + 1};{y + 1}M\x1b[<0;{x + 1};{y + 1}m')
+            time.sleep(2.5)
+        click_monitor()
+        expanded = capture('monitor-expanded')
+        for label in ['Sid VM', 'VPS Helsinki', 'VPS Singapore', 'Temporary compute']:
+            assert any(label in line for line in expanded), label + ' absent'
+        assert any('RAM' in line for line in expanded), 'real RAM bars absent'
+        assert 'menu' in expanded[y] and 'Monitor' in expanded[y], 'footer lost'
+        click_monitor()
+        collapsed = capture('monitor-collapsed')
+        assert not any('VPS Helsinki' in line for line in collapsed), 'collapse failed'
+        click_monitor()
+        monitor_file.write_text('{"version":999}', encoding='utf-8')
+        time.sleep(3)
+        invalid = capture('monitor-invalid')
+        assert any('Invalid monitor data' in line for line in invalid), 'invalid source not visible'
+        assert not any('RAM' in line for line in invalid), 'invalid source retained healthy bars'
     if mode == 'before':
         assert any('[+] New' in line for line in lines), 'Baseline footer control is absent'
     if mode == 'after':

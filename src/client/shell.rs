@@ -5,6 +5,7 @@ mod agent_sidebar;
 mod aggregate_navigation;
 mod archive;
 mod machine_diagnostics;
+mod machine_monitor;
 mod workspace_navigation;
 use workspace_navigation::{PendingDirectFocus, PendingWorkspaceHighlight, PendingWorkspaceInput, WorkspaceNavigationTarget};
 mod composition;

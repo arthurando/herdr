@@ -3395,3 +3395,30 @@ fn new_session_shortcut_requires_name_confirmation_and_cancel_creates_nothing() 
         matches!(confirmed.actions.as_slice(), [ClientShellAction::Endpoint { request, .. }] if matches!(&request.method, crate::api::schema::Method::WorkspaceCreate(params) if params.label.as_deref() == Some("My new session")))
     );
 }
+
+#[test]
+fn monitor_footer_toggle_preserves_menu_and_session_area() {
+    let (mut state, _) = state_with_remote();
+    state.compose(100, 28).unwrap();
+    let height = state.hits.workspace_body.height;
+    let menu = state.hits.global_launcher;
+    let toggle = state.hits.monitor_toggle;
+    assert!(!toggle.is_empty());
+    assert_eq!(toggle.right(), menu.x);
+    assert!(state.hits.archive_toggle.right() <= toggle.x);
+    let click = || RawInputEvent::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left), column: toggle.x + 1, row: toggle.y,
+        modifiers: KeyModifiers::empty(),
+    });
+    let outcome = state.handle_raw_events(vec![click()]);
+    assert!(outcome.actions.is_empty());
+    assert!(state.machine_monitor.expanded);
+    state.compose(100, 28).unwrap();
+    assert!(state.hits.workspace_body.height < height);
+    assert_eq!(state.hits.global_launcher, menu);
+    assert!(state.hits.workspace_body.bottom() <= state.hits.monitor_body.y);
+    state.handle_raw_events(vec![click()]);
+    state.compose(100, 28).unwrap();
+    assert_eq!(state.hits.workspace_body.height, height);
+    assert!(state.hits.monitor_body.is_empty());
+}

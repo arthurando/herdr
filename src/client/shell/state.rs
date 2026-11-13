@@ -84,6 +84,9 @@ pub(super) enum ClientMobileTarget {
 pub(super) struct ShellHitMap {
     pub(super) machines: Vec<MachineHit>,
     pub(super) archive_toggle: Rect,
+    pub(super) monitor_toggle: Rect,
+    pub(super) monitor_body: Rect,
+    pub(super) monitor_max_scroll: usize,
     pub(super) archive_body: Rect,
     pub(super) archive_rows: Vec<(Rect, String)>,
     pub(super) archive_max_scroll: usize,
@@ -886,6 +889,7 @@ pub(crate) struct ClientShellState {
     pub(super) local_history_cache: LocalHistoryCache,
     pub(super) local_compose_drafts: Vec<ClientLocalCompose>,
     pub(super) machine_diagnostics: super::machine_diagnostics::MachineDiagnostics,
+    pub(super) machine_monitor: super::machine_monitor::MonitorPanel,
     pub(super) config: ClientShellConfig,
     pub(super) snapshot: Option<Box<ClientShellSnapshot>>,
     pub(super) active_snapshot_generation: Option<u64>,
@@ -1063,6 +1067,9 @@ impl ClientShellState {
         }
         Self {
             machine_diagnostics: Default::default(),
+            machine_monitor: super::machine_monitor::MonitorPanel::new(
+                preferences.monitor_expanded.unwrap_or(false),
+            ),
             config,
             snapshot: None,
             active_snapshot_generation: None,

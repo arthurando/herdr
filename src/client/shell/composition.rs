@@ -57,6 +57,7 @@ impl ClientShellState {
         let mut render_state = render::ShellRenderState {
             archive: &self.archive,
             machine_diagnostics: &self.machine_diagnostics,
+            machine_monitor: &self.machine_monitor,
             endpoints: &self.endpoints,
             active_endpoint_id: &self.active_endpoint_id,
             collapsed_groups: &self.collapsed_groups,
@@ -215,6 +216,7 @@ impl ClientShellState {
             render::ShellRenderState {
                 archive: &self.archive,
                 machine_diagnostics: &self.machine_diagnostics,
+                machine_monitor: &self.machine_monitor,
                 endpoints: &self.endpoints,
                 active_endpoint_id: &self.active_endpoint_id,
                 collapsed_groups: &self.collapsed_groups,

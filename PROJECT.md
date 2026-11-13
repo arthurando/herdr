@@ -178,3 +178,36 @@ one workspace only after the name is confirmed. It also proves cancel has no
 creation effect and captures the bright current-session border. `--baseline` captures the old client without clicking. The script
 requires installed pywinpty, pyte and Pillow; it stops only its own fixture server.
 Unit endpoint tests cover remote routing, prompts, offline targets and long labels.
+
+## Machine monitor
+
+Monitor beside Menu expands a client-only panel at the bottom of the machine
+sidebar. It starts collapsed and saves the choice with other client chrome.
+The session list retains at least its header and several rows. The monitor has
+its own wheel scroll when space is limited; Archive and Menu remain accessible.
+
+The external collector owns `%LOCALAPPDATA%/herdr/monitor/snapshot.json`.
+`HERDR_MONITOR_FILE` overrides the path for isolated checks. The version 1 JSON
+contains generated_at, poll_seconds, hosts and temporary resource inventory.
+Only Sid VM, VPS Helsinki and VPS Singapore appear. The consumer has no provider
+credentials, network calls or server protocol changes. A bounded background
+reader checks at two-second intervals; render uses only cached typed data.
+The reader limits each file to 256 KiB and 32 temporary resources. A missing,
+invalid or stale source cannot appear as fresh zero utilization or empty inventory.
+
+Host CPU is the collector's interval percent. Memory uses bytes and displays GiB.
+VPS load is the one-minute load alongside CPU count. Temporary inventory errors
+remain visible. Rented CPU creation time is labelled age; RunPod runtime is up.
+Unknown usage and elapsed values display unknown. Stopped rented CPU remains
+visible because the rental still exists; stopped RunPod is excluded.
+
+Design decision: the typed local snapshot keeps fleet monitoring separate from
+session runtime. Adding server snapshot fields was rejected because it would
+require server upgrades for a local presentation feature. Data collection and
+UI changes have separate owners. The only shared boundary is version 1 JSON.
+The client never performs file or network I/O from a render loop.
+
+Native proof: `python scripts/test_machine_workspace_ui.py <candidate.exe>
+<new-output-directory> --monitor-snapshot <fresh-collector-snapshot.json>`.
+This starts its own isolated server/client, captures actual ConPTY output,
+checks expand/collapse and rejects invalid data. It never sends input to user panes.
