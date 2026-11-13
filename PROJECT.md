@@ -197,7 +197,9 @@ invalid or stale source cannot appear as fresh zero utilization or empty invento
 
 Host CPU is the collector's interval percent. Memory uses bytes and displays GiB.
 VPS load is the one-minute load alongside CPU count. Temporary inventory errors
-remain visible. Rented CPU creation time is labelled age; RunPod runtime is up.
+remain visible. Rented CPU displays its server count and the longest elapsed time
+across those servers. A zero-server inventory displays count 0 and no elapsed time;
+an unknown worker age makes the longest elapsed time unknown. RunPod runtime is up.
 Unknown usage and elapsed values display unknown. Stopped rented CPU remains
 visible because the rental still exists; stopped RunPod is excluded.
 

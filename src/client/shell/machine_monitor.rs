@@ -136,6 +136,22 @@ fn percent(value: Option<f64>) -> Option<f64> {
 fn clean(value: &str) -> String {
     value.chars().filter(|c| !c.is_control()).take(48).collect()
 }
+fn elapsed(resource: &Resource, snapshot: &Snapshot, now: i64) -> Option<u64> {
+    let seconds = resource
+        .elapsed_seconds
+        .filter(|_| matches!(resource.elapsed_basis.as_str(), "created" | "uptime"))?;
+    let delta = if resource.state == "running" || resource.elapsed_basis == "created" {
+        now.saturating_sub(timestamp(&snapshot.generated_at).unwrap_or(now)).max(0) as u64
+    } else {
+        0
+    };
+    Some(seconds.saturating_add(delta))
+}
+fn format_elapsed(seconds: Option<u64>) -> String {
+    seconds
+        .map(|seconds| format!("{:02}:{:02}:{:02}", seconds / 3600, seconds / 60 % 60, seconds % 60))
+        .unwrap_or_else(|| "unknown".into())
+}
 
 impl MonitorPanel {
     pub(super) fn new(expanded: bool) -> Self {
@@ -298,7 +314,35 @@ impl MonitorPanel {
                 false,
             ));
         }
+        let rented: Vec<_> = active
+            .iter()
+            .copied()
+            .filter(|resource| resource.kind == "rented_cpu")
+            .collect();
+        let rented_known = temporary.providers.iter().any(|provider| {
+            provider.id == "hetzner" && provider.status == "ok"
+        });
+        if rented_known {
+            let longest = rented.iter().try_fold(0, |longest, resource| {
+                elapsed(resource, snapshot, self.now).map(|seconds| longest.max(seconds))
+            });
+            lines.push(Line::Text(format!("Rented CPU: {}", rented.len()), true));
+            lines.push(Line::Text(
+                format!("Longest: {}", if rented.is_empty() {
+                    "--".into()
+                } else {
+                    format_elapsed(longest)
+                }),
+                false,
+            ));
+        } else {
+            lines.push(Line::Text("Rented CPU: unknown".into(), true));
+            lines.push(Line::Text("Longest: unknown".into(), false));
+        }
         for resource in active {
+            if resource.kind == "rented_cpu" {
+                continue;
+            }
             let kind = if resource.kind == "runpod" {
                 "RunPod"
             } else {
@@ -308,29 +352,7 @@ impl MonitorPanel {
                 format!("{kind}: {}", clean(&resource.label)),
                 true,
             ));
-            let elapsed = resource
-                .elapsed_seconds
-                .filter(|_| matches!(resource.elapsed_basis.as_str(), "created" | "uptime"));
-            let elapsed = elapsed
-                .map(|seconds| {
-                    let delta = if resource.state == "running"
-                        || resource.elapsed_basis == "created"
-                    {
-                        self.now
-                            .saturating_sub(timestamp(&snapshot.generated_at).unwrap_or(self.now))
-                            .max(0) as u64
-                    } else {
-                        0
-                    };
-                    let seconds = seconds.saturating_add(delta);
-                    format!(
-                        "{:02}:{:02}:{:02}",
-                        seconds / 3600,
-                        seconds / 60 % 60,
-                        seconds % 60
-                    )
-                })
-                .unwrap_or_else(|| "unknown".into());
+            let elapsed = format_elapsed(elapsed(resource, snapshot, self.now));
             let basis = if resource.elapsed_basis == "created" {
                 "age"
             } else {
@@ -527,6 +549,63 @@ mod tests {
         assert!(texts(&panel(value.clone())).contains("00:01:15"));
         value["temporary"]["resources"][0]["elapsed_basis"] = "unknown".into();
         assert!(texts(&panel(value)).contains("up unknown"));
+    }
+    #[test]
+    fn monitor_summarizes_rented_cpu_count_and_longest_elapsed() {
+        let mut value = sample();
+        value["temporary"]["resources"] = serde_json::json!([
+            {"label":"one","kind":"rented_cpu","state":"running","elapsed_seconds":65,"elapsed_basis":"uptime","cpu_percent":null,"gpu_percent":null},
+            {"label":"two","kind":"rented_cpu","state":"running","elapsed_seconds":3725,"elapsed_basis":"created","cpu_percent":null,"gpu_percent":null},
+            {"label":"gpu","kind":"runpod","state":"running","elapsed_seconds":20,"elapsed_basis":"uptime","cpu_percent":null,"gpu_percent":null}
+        ]);
+        let text = texts(&panel(value));
+        assert!(text.contains("Rented CPU: 2"));
+        assert!(text.contains("Longest: 01:02:15"));
+        assert!(!text.contains("Rented CPU: one"));
+        assert!(text.contains("RunPod: gpu"));
+    }
+    #[test]
+    fn monitor_rented_count_handles_zero_one_and_three() {
+        for count in [0, 1, 3] {
+            let mut value = sample();
+            value["temporary"]["resources"] = (0..count)
+                .map(|index| serde_json::json!({"label":format!("worker-{index}"),"kind":"rented_cpu","state":"running","elapsed_seconds":65,"elapsed_basis":"created"}))
+                .collect::<Vec<_>>().into();
+            let text = texts(&panel(value));
+            assert!(text.contains(&format!("Rented CPU: {count}")));
+            assert!(text.contains(if count == 0 { "Longest: --" } else { "Longest: 00:01:15" }));
+        }
+    }
+    #[test]
+    fn monitor_unknown_worker_age_or_inventory_is_not_a_known_maximum() {
+        let mut value = sample();
+        value["temporary"]["resources"] = serde_json::json!([
+            {"label":"known","kind":"rented_cpu","state":"running","elapsed_seconds":65,"elapsed_basis":"created"},
+            {"label":"unknown","kind":"rented_cpu","state":"running","elapsed_seconds":null,"elapsed_basis":"unknown"}
+        ]);
+        let text = texts(&panel(value.clone()));
+        assert!(text.contains("Rented CPU: 2"));
+        assert!(text.contains("Longest: unknown"));
+        value["temporary"]["providers"][0]["status"] = "unavailable".into();
+        let text = texts(&panel(value));
+        assert!(text.contains("Rented CPU: unknown"));
+        assert!(text.contains("Longest: unknown"));
+    }
+    #[test]
+    fn monitor_rented_summary_renders_complete_elapsed_in_narrow_sidebar() {
+        let mut value = sample();
+        value["temporary"]["resources"] = serde_json::json!([
+            {"label":"worker","kind":"rented_cpu","state":"running","elapsed_seconds":4572,"elapsed_basis":"created"}
+        ]);
+        let p = panel(value);
+        let area = Rect::new(0, 0, 24, 40);
+        let mut buffer = Buffer::empty(area);
+        render(&mut buffer, area, &p, &Palette::catppuccin(), &mut ShellHitMap::default());
+        let rows = (0..area.height).map(|row| {
+            (0..area.width).map(|column| buffer[(column, row)].symbol()).collect::<String>()
+        }).collect::<Vec<_>>();
+        assert!(rows.iter().any(|row| row.contains("Rented CPU: 1")));
+        assert!(rows.iter().any(|row| row.contains("Longest: 01:16:22")));
     }
     #[test]
     fn monitor_decode_bounds_and_clock_validation() {
