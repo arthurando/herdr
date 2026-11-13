@@ -238,6 +238,9 @@ pub(super) fn begin_endpoint_activation(
     }) {
         return Ok(());
     }
+    if let Some(shell) = state.shell.as_mut() {
+        shell.retain_machine_workspace(&endpoint_id, target.is_some());
+    }
     state.deferred_local_activation = None;
     if endpoint_id.is_local() && !local_activation_metadata_ready(state, endpoints) {
         state.deferred_local_activation = Some(endpoint::EndpointActivationIntent {
@@ -285,6 +288,23 @@ pub(super) fn begin_endpoint_activation(
             let actions = shell.focus_endpoint_target(target);
             let (_, repaint) = dispatch_client_shell_actions(
                 actions,
+                endpoint_commands,
+                endpoints,
+                Some(shell),
+                &mut state.detached_process_children,
+                scheduled_activation,
+            )?;
+            if repaint {
+                if let Some(frame) = shell.compose(state.reported_size.0, state.reported_size.1) {
+                    state.present_frame(frame);
+                }
+            }
+        }
+        if let Some(shell) = state.shell.as_mut() {
+            let outcome = shell.complete_machine_workspace();
+            let repaint = outcome.repaint;
+            dispatch_client_shell_actions(
+                outcome.actions,
                 endpoint_commands,
                 endpoints,
                 Some(shell),
@@ -397,6 +417,7 @@ pub(super) fn complete_endpoint_activation(
         match activation.complete(shell, endpoints) {
             Ok(completion) => completion,
             Err(error) => {
+                shell.cancel_machine_workspace();
                 shell.receive_endpoint_unavailable(error);
                 return Ok(None);
             }
@@ -427,6 +448,7 @@ pub(super) fn complete_endpoint_activation(
         return Ok(None);
     }
 
+    let activated = completion == endpoint::ActivationCompletion::Activated;
     let _ = pending.take();
     endpoints.unfreeze_input();
     let successor = match completion {
@@ -447,6 +469,23 @@ pub(super) fn complete_endpoint_activation(
         | endpoint::ActivationCompletion::AwaitingPresentationEffects => unreachable!(),
     };
     state.unfreeze_presentation();
+    if let Some(shell) = state.shell.as_mut() {
+        if activated {
+            let outcome = shell.complete_machine_workspace();
+            let mut scheduled = None;
+            dispatch_client_shell_actions(
+                outcome.actions,
+                endpoint_commands,
+                endpoints,
+                Some(shell),
+                &mut state.detached_process_children,
+                &mut scheduled,
+            )?;
+            debug_assert!(scheduled.is_none());
+        } else {
+            shell.cancel_machine_workspace();
+        }
+    }
     if successor.is_none() {
         let active_endpoint = endpoints.active_id().clone();
         let cancelled = endpoint_commands.send_next(&active_endpoint, endpoints);
@@ -498,6 +537,9 @@ pub(super) fn rollback_endpoint_activation(
     error: String,
     source_release_rejected: bool,
 ) {
+    if let Some(shell) = state.shell.as_mut() {
+        shell.cancel_machine_workspace();
+    }
     let Some(activation) = pending.as_mut() else {
         return;
     };

@@ -72,7 +72,7 @@ fn shell_new_controls_use_the_same_client_action_routes_as_keybinds() {
     state.set_pane_surface(surface());
     state.compose(106, 20).expect("composed frame");
 
-    let new_workspace = state.hits.new_workspace;
+    let new_workspace = state.hits.machines[0].new_workspace;
     let create_workspace =
         state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),

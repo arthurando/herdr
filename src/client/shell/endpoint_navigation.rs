@@ -1,6 +1,31 @@
 use super::*;
 
 impl ClientShellState {
+    pub(crate) fn complete_machine_workspace(&mut self) -> ClientShellInput {
+        let mut outcome = ClientShellInput::default();
+        if self.pending_machine_workspace.take().as_ref() == Some(&self.active_endpoint_id) {
+            self.record_binding(
+                crate::input::KeybindMatch::Action(crate::input::KeybindAction::NewWorkspace),
+                &mut outcome,
+            );
+        }
+        outcome
+    }
+
+    pub(crate) fn retain_machine_workspace(
+        &mut self,
+        endpoint_id: &ClientEndpointId,
+        has_focus_target: bool,
+    ) {
+        if has_focus_target || self.pending_machine_workspace.as_ref() != Some(endpoint_id) {
+            self.pending_machine_workspace = None;
+        }
+    }
+
+    pub(crate) fn cancel_machine_workspace(&mut self) {
+        self.pending_machine_workspace = None;
+    }
+
     pub(super) fn active_endpoint_workspace_at(&self, point: (u16, u16)) -> Option<String> {
         self.hits
             .workspaces
@@ -64,6 +89,27 @@ impl ClientShellState {
             return false;
         };
         let endpoint_id = hit.endpoint_id.clone();
+        let create_workspace = super::contains(hit.new_workspace, point);
+        self.pending_machine_workspace = None;
+        if create_workspace {
+            if !self.endpoint_is_online(&endpoint_id) {
+                let label = self.endpoint_label(&endpoint_id).to_owned();
+                self.receive_endpoint_unavailable(format!("{label} is not ready"));
+                outcome.repaint = true;
+            } else if endpoint_id == self.active_endpoint_id && !self.multi_endpoint_active() {
+                self.record_binding(
+                    crate::input::KeybindMatch::Action(crate::input::KeybindAction::NewWorkspace),
+                    outcome,
+                );
+            } else {
+                self.pending_machine_workspace = Some(endpoint_id.clone());
+                outcome.actions.push(ClientShellAction::ActivateEndpoint {
+                    endpoint_id,
+                    target: None,
+                });
+            }
+            return true;
+        }
         if endpoint_id == self.active_endpoint_id {
             if endpoint_id.is_local() {
                 self.activate_endpoint(endpoint_id, outcome);

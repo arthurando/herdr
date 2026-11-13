@@ -1,0 +1,117 @@
+"""Capture an isolated Windows client and verify its machine (+) control.
+
+Requires pywinpty, pyte and Pillow. No desktop input is injected.
+Usage: python scripts/test_machine_workspace_ui.py EXE OUTPUT_DIR [--baseline]
+"""
+import sys, os, time, json, threading, subprocess, uuid
+from pathlib import Path
+from winpty import PtyProcess
+import pyte
+from PIL import Image, ImageDraw, ImageFont
+exe = str(Path(sys.argv[1]).resolve())
+root = Path(sys.argv[2]).resolve()
+mode = 'before' if '--baseline' in sys.argv[3:] else 'after'
+root.mkdir(parents=True, exist_ok=False)
+env = os.environ.copy()
+for key in list(env):
+    if key.startswith('HERDR_'):
+        del env[key]
+env.update(XDG_CONFIG_HOME=str(root / 'config'), XDG_STATE_HOME=str(root / 'state'), HERDR_SESSION='buttons-test-' + uuid.uuid4().hex[:12])
+config = root / 'test.toml'
+config.write_text('onboarding = false\n[terminal]\ndefault_shell = "cmd.exe"\n[ui]\nmouse_capture = true\nsidebar_start_collapsed = false\nprompt_new_workspace_name = false\n')
+env['HERDR_CONFIG_PATH'] = str(config)
+
+def cli(*args):
+    r = subprocess.run([exe, *args], env=env, cwd=root, capture_output=True, text=True, encoding='utf-8', creationflags=subprocess.CREATE_NO_WINDOW, timeout=15)
+    if r.returncode:
+        raise RuntimeError(str(args) + ': ' + r.stdout + r.stderr)
+    return r.stdout
+screen = pyte.Screen(100, 28)
+stream = pyte.Stream(screen)
+lock = threading.Lock()
+raw = []
+proc = None
+server = None
+try:
+    log = (root / 'server.log').open('w')
+    server = subprocess.Popen([exe, 'server'], env=env, cwd=root, stdout=log, stderr=log, creationflags=subprocess.CREATE_NO_WINDOW)
+    for i in range(40):
+        try:
+            before = cli('workspace', 'list')
+            break
+        except Exception:
+            time.sleep(0.25)
+    else:
+        raise RuntimeError('fixture server did not start')
+    (root / 'initial-workspaces.json').write_text(before)
+    proc = PtyProcess.spawn([exe, 'client'], env=env, cwd=str(root), dimensions=(28, 100))
+
+    def read():
+        while proc.isalive():
+            try:
+                data = proc.read(65536)
+            except Exception:
+                break
+            raw.append(data)
+            with lock:
+                stream.feed(data)
+    thread = threading.Thread(target=read, daemon=True)
+    thread.start()
+    time.sleep(5)
+
+    def capture(name):
+        with lock:
+            lines = screen.display[:]
+            img = Image.new('RGB', (1000, 560), (25, 25, 35))
+            draw = ImageDraw.Draw(img)
+            font = ImageFont.truetype(str(Path(os.environ['WINDIR']) / 'Fonts' / 'consola.ttf'), 17)
+            colours = {'default': '#dddddd', 'black': '#000000', 'white': '#ffffff', 'red': '#cd3131', 'green': '#0dbc79', 'yellow': '#e5e510', 'blue': '#2472c8', 'magenta': '#bc3fbc', 'cyan': '#11a8cd'}
+            for y in range(28):
+                for x in range(100):
+                    c = screen.buffer[y][x]
+
+                    def colour(v, default):
+                        return colours.get(v, '#' + v if len(v) == 6 else default)
+                    bg = colour(c.bg, '#191923') if c.bg != 'default' else '#191923'
+                    fg = colour(c.fg, '#dddddd')
+                    draw.rectangle((x * 10, y * 20, x * 10 + 9, y * 20 + 19), fill=bg)
+                    draw.text((x * 10, y * 20), c.data, font=font, fill=fg)
+            img.save(root / (name + '.png'))
+            (root / (name + '.txt')).write_text('\n'.join(lines), encoding='utf-8')
+        return lines
+    lines = capture('sidebar')
+    assert any('Local' in line for line in lines), 'Local machine row is absent'
+    if mode == 'before':
+        assert any('[+] New' in line for line in lines), 'Baseline footer control is absent'
+    if mode == 'after':
+        matches = [(line.index('(+)') + 1, y) for y, line in enumerate(lines) if '(+)' in line and 'Local' in line]
+        assert matches, 'Local (+) absent: ' + repr(lines)
+        assert not any(('[+] New' in line for line in lines))
+        x, y = matches[0]
+        before = cli('workspace', 'list')
+        proc.write(f'\x1b[<0;{x + 1};{y + 1}M\x1b[<0;{x + 1};{y + 1}m')
+        time.sleep(2)
+        after = cli('workspace', 'list')
+        (root / 'before-click.json').write_text(before)
+        (root / 'after-click.json').write_text(after)
+        old_ids = {item['workspace_id'] for item in json.loads(before)['result']['workspaces']}
+        new_ids = {item['workspace_id'] for item in json.loads(after)['result']['workspaces']}
+        assert old_ids < new_ids and len(new_ids - old_ids) == 1, 'click must add exactly one workspace'
+        capture('created-session')
+    (root / 'raw.ansi').write_text(''.join(raw), encoding='utf-8')
+    print(json.dumps({'mode': mode, 'result': 'PASS', 'artifact': str(root)}))
+finally:
+    if proc:
+        try:
+            proc.close(force=True)
+        except Exception:
+            pass
+    if server:
+        try:
+            cli('server', 'stop')
+        except Exception:
+            server.terminate()
+        try:
+            server.wait(timeout=5)
+        except Exception:
+            server.kill()

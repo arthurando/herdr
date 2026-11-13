@@ -97,6 +97,8 @@ fn unified_sidebar_keeps_multiple_panes_and_footer_controls() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(text.contains("Named session"));
+    assert!(text.contains("(+)"));
+    assert!(!text.contains("[+] New"));
     assert!(!text.contains(" sessions"));
     let workspace = state
         .hits
@@ -133,7 +135,7 @@ fn unified_sidebar_keeps_multiple_panes_and_footer_controls() {
         .endpoint_agents
         .iter()
         .any(|(_, endpoint, pane)| endpoint == &remote && pane == "pane_2"));
-    assert_eq!(state.hits.new_workspace.y, 27);
+    assert!(state.hits.new_workspace.is_empty());
     assert_eq!(state.hits.global_launcher.y, 27);
     let rect = state
         .hits
@@ -234,7 +236,7 @@ fn local_only_uses_the_same_unified_sidebar() {
     assert!(text.contains(" machines"));
     assert!(text.contains("client-shell"));
     assert!(!text.contains(" sessions"));
-    assert_eq!(state.hits.new_workspace.y, 27);
+    assert!(state.hits.new_workspace.is_empty());
     assert_eq!(state.hits.global_launcher.y, 27);
 }
 
@@ -3224,4 +3226,123 @@ fn terminal_sessions_do_not_duplicate_detected_agents_or_escape_legacy_filter() 
         crate::config::AgentPanelSortConfig::Priority,
     );
     assert!(rows.iter().all(|row| row.endpoint.endpoint_id != &remote));
+}
+
+#[test]
+fn machine_plus_waits_for_target_activation_and_creates_once() {
+    let (mut state, remote) = state_with_remote();
+    state.config.prompt_new_workspace_name = false;
+    state.compose(100, 28).unwrap();
+    let hit = state
+        .hits
+        .machines
+        .iter()
+        .find(|hit| hit.endpoint_id == remote)
+        .unwrap();
+    let point = (hit.new_workspace.x + 1, hit.new_workspace.y);
+    assert!(!hit.new_workspace.is_empty());
+    let outcome = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: point.0,
+        row: point.1,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert!(
+        matches!(outcome.actions.as_slice(), [ClientShellAction::ActivateEndpoint { endpoint_id, target: None }] if endpoint_id == &remote)
+    );
+    assert!(state.activate_endpoint_projection(&remote));
+    let outcome = state.complete_machine_workspace();
+    assert!(
+        matches!(outcome.actions.as_slice(), [ClientShellAction::Endpoint { endpoint_id, request, .. }] if endpoint_id == &remote && matches!(request.method, crate::api::schema::Method::WorkspaceCreate(_)))
+    );
+    assert!(state.complete_machine_workspace().actions.is_empty());
+}
+
+#[test]
+fn machine_plus_preserves_name_prompt_and_cancels_stale_intent() {
+    let (mut state, remote) = state_with_remote();
+    state.config.prompt_new_workspace_name = true;
+    state.pending_machine_workspace = Some(remote.clone());
+    state.retain_machine_workspace(&ClientEndpointId::Local, false);
+    assert!(state.complete_machine_workspace().actions.is_empty());
+    assert!(state.overlay.is_none());
+    state.pending_machine_workspace = Some(remote.clone());
+    assert!(state.activate_endpoint_projection(&remote));
+    assert!(state.complete_machine_workspace().actions.is_empty());
+    assert!(matches!(
+        state.overlay,
+        Some(ClientShellOverlay::Rename(ClientRenameOverlay {
+            target: ClientRenameTarget::NewWorkspace { .. },
+            ..
+        }))
+    ));
+}
+
+#[test]
+fn offline_machine_plus_does_not_create_on_active_machine() {
+    let (mut state, remote) = state_with_remote();
+    state.set_endpoint_status(&remote, ClientEndpointStatus::Disabled);
+    state.compose(100, 28).unwrap();
+    let hit = state
+        .hits
+        .machines
+        .iter()
+        .find(|hit| hit.endpoint_id == remote)
+        .unwrap();
+    let point = (hit.new_workspace.x + 1, hit.new_workspace.y);
+    let mut outcome = ClientShellInput::default();
+    assert!(state.handle_endpoint_machine_click(point, &mut outcome));
+    assert!(outcome.actions.is_empty());
+    assert!(state.pending_machine_workspace.is_none());
+    assert!(state.visible_endpoint_notice.is_some());
+}
+
+#[test]
+fn local_machine_plus_from_remote_waits_then_uses_local_snapshot() {
+    let (mut state, remote) = state_with_remote();
+    state.config.prompt_new_workspace_name = false;
+    assert!(state.activate_endpoint_projection(&remote));
+    state.compose(100, 28).unwrap();
+    let hit = state
+        .hits
+        .machines
+        .iter()
+        .find(|hit| hit.endpoint_id.is_local())
+        .unwrap();
+    let point = (hit.new_workspace.x + 1, hit.new_workspace.y);
+    let mut outcome = ClientShellInput::default();
+    assert!(state.handle_endpoint_machine_click(point, &mut outcome));
+    assert!(matches!(
+        outcome.actions.as_slice(),
+        [ClientShellAction::ActivateEndpoint {
+            endpoint_id: ClientEndpointId::Local,
+            target: None
+        }]
+    ));
+    assert!(state.activate_endpoint_projection(&ClientEndpointId::Local));
+    let outcome = state.complete_machine_workspace();
+    assert!(
+        matches!(outcome.actions.as_slice(), [ClientShellAction::Endpoint { endpoint_id: ClientEndpointId::Local, boot_id, request, .. }] if boot_id == &snapshot().boot_id && matches!(request.method, crate::api::schema::Method::WorkspaceCreate(_)))
+    );
+}
+
+#[test]
+fn long_machine_name_keeps_plus_and_status_hit_areas_separate() {
+    let (mut state, remote) = state_with_remote();
+    state
+        .endpoints
+        .iter_mut()
+        .find(|endpoint| endpoint.endpoint_id == remote)
+        .unwrap()
+        .label = "A very long machine name that fills the sidebar".into();
+    state.compose(100, 28).unwrap();
+    let hit = state
+        .hits
+        .machines
+        .iter()
+        .find(|hit| hit.endpoint_id == remote)
+        .unwrap();
+    assert_eq!(hit.new_workspace.width, 3);
+    assert!(hit.new_workspace.right() < hit.status_badge.x);
+    assert!(state.hits.new_workspace.is_empty());
 }

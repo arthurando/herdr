@@ -20,7 +20,8 @@ repository; this is a user-owned fork.
 
 - The default sidebar groups sessions under always-expanded machines. Session names
   use bold rainbow colours; multi-pane workspaces retain separate pane targets.
-  New, Archive and menu controls remain at the bottom. Priority order applies
+  Each expanded machine row has a (+) control that creates a session on that machine
+  after its connection is active. Archive and menu controls remain at the bottom. Priority order applies
   within each machine and preserves worktree groups. Custom agent views retain
   their dedicated list and configurable rows.
 - Archive entries are scoped to the selected server. Explicitly closed workspaces
@@ -160,3 +161,18 @@ pastes a quoted path only when the original endpoint generation and pane remain
 active. The limit is 1 GiB. A failed or interrupted transfer can leave a
 partial file. If the pane changes, Herdr shows the verified path in a notice.
 The terminal does not distinguish a file drop from an ordinary path paste.
+
+## Machine session controls
+
+The expanded machine row owns its (+) hit area. The click retains one endpoint
+intent until the runtime finishes its existing activation fence. The active
+machine then uses the same naming prompt or WorkspaceCreate route as the keyboard
+shortcut. A failed or superseded activation cancels the intent. Offline machines
+show the existing unavailable notice. No endpoint protocol fields change.
+
+Windows UI proof uses an isolated config, state folder and unique named server:
+`python scripts/test_machine_workspace_ui.py <herdr.exe> <new-output-directory>`.
+It captures the actual ConPTY frame and checks that a Local (+) click adds exactly
+one workspace. `--baseline` captures the old client without clicking. The script
+requires installed pywinpty, pyte and Pillow; it stops only its own fixture server.
+Unit endpoint tests cover remote routing, prompts, offline targets and long labels.

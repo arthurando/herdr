@@ -103,6 +103,7 @@ pub(super) fn render_collapsed(
             hits.machines.push(MachineHit {
                 rect,
                 status_badge,
+                new_workspace: Rect::default(),
                 endpoint_id: endpoint.endpoint_id.clone(),
             });
             y = y.saturating_add(1);
@@ -505,7 +506,7 @@ pub(super) fn render_expanded(
                 }
                 let endpoint = &state.endpoints[*index];
                 let rect = Rect::new(body.x, y, content_width, 1);
-                let status_badge = render_endpoint_row(
+                let (status_badge, new_workspace) = render_endpoint_row(
                     buffer,
                     rect,
                     "",
@@ -517,6 +518,7 @@ pub(super) fn render_expanded(
                 hits.machines.push(MachineHit {
                     rect,
                     status_badge,
+                    new_workspace,
                     endpoint_id: endpoint.endpoint_id.clone(),
                 });
                 y = y
@@ -739,27 +741,12 @@ pub(super) fn render_expanded(
         super::archive::render(buffer, archive_area, state.archive, palette, hits);
     }
     if config.mouse_capture {
-        let label = " [+] New";
         let attention = active_snapshot.is_some_and(super::global_menu::global_menu_attention);
         let width = if attention { 8 } else { 6 }.min(workspace_area.width);
         let archive_width = 8.min(workspace_area.width.saturating_sub(width));
-        let new_width = workspace_area.width.saturating_sub(width + archive_width);
-        hits.new_workspace = Rect::new(
-            workspace_area.x,
-            footer_y,
-            display_width(label).min(new_width),
-            u16::from(workspace_area.height > 0),
-        );
-        put_text(
-            buffer,
-            workspace_area.x,
-            footer_y,
-            new_width,
-            label,
-            Style::default().fg(palette.overlay0),
-        );
+        let archive_offset = workspace_area.width.saturating_sub(width + archive_width);
         hits.archive_toggle = Rect::new(
-            workspace_area.x.saturating_add(new_width),
+            workspace_area.x.saturating_add(archive_offset),
             footer_y,
             archive_width,
             1,
@@ -848,7 +835,7 @@ fn render_endpoint_row(
     highlighted: bool,
     auth: &super::machine_diagnostics::MachineDiagnostics,
     palette: &Palette,
-) -> Rect {
+) -> (Rect, Rect) {
     let (glyph, state, color) = endpoint_status_presentation(endpoint.status, palette);
     let state = if endpoint.status == ClientEndpointStatus::Online {
         ""
@@ -867,12 +854,29 @@ fn render_endpoint_row(
         format!("{glyph} {state}")
     };
     let signal_width = display_width(&signal).min(rect.width);
+    let label = format!(" {marker} {}", endpoint.label);
+    let label_room = rect.width.saturating_sub(signal_width.saturating_add(5));
+    let label_width = display_width(&label).min(label_room);
+    let new_workspace = if label_room > 0 {
+        let button = Rect::new(rect.x + label_width + 1, rect.y, 3, 1);
+        put_text(
+            buffer,
+            button.x,
+            button.y,
+            button.width,
+            "(+)",
+            Style::default().fg(palette.accent),
+        );
+        button
+    } else {
+        Rect::default()
+    };
     put_text(
         buffer,
         rect.x,
         rect.y,
-        rect.width.saturating_sub(signal_width.saturating_add(1)),
-        &format!(" {marker} {}", endpoint.label),
+        label_room,
+        &label,
         Style::default()
             .fg(match palette.panel_bg {
                 Color::Rgb(r, g, b) if u16::from(r) + u16::from(g) + u16::from(b) > 540 => {
@@ -893,10 +897,13 @@ fn render_endpoint_row(
         &signal,
         auth.badge_style(endpoint, palette, Style::default().fg(color)),
     );
-    Rect::new(
-        rect.right().saturating_sub(signal_width),
-        rect.y,
-        signal_width,
-        1,
+    (
+        Rect::new(
+            rect.right().saturating_sub(signal_width),
+            rect.y,
+            signal_width,
+            1,
+        ),
+        new_workspace,
     )
 }
