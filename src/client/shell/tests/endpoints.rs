@@ -3417,6 +3417,13 @@ fn monitor_footer_toggle_preserves_menu_and_session_area() {
     assert!(state.hits.workspace_body.height < height);
     assert_eq!(state.hits.global_launcher, menu);
     assert!(state.hits.workspace_body.bottom() <= state.hits.monitor_body.y);
+    state.machine_monitor.scroll = 20;
+    state.hits.monitor_max_scroll = 3;
+    state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+        kind: MouseEventKind::ScrollUp, column: state.hits.monitor_body.x + 1,
+        row: state.hits.monitor_body.y + 1, modifiers: KeyModifiers::empty(),
+    })]);
+    assert_eq!(state.machine_monitor.scroll, 0, "scroll must recover when resource rows disappear");
     state.handle_raw_events(vec![click()]);
     state.compose(100, 28).unwrap();
     assert_eq!(state.hits.workspace_body.height, height);

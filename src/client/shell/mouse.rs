@@ -1902,7 +1902,7 @@ impl ClientShellState {
                 );
             }
             MouseEventKind::ScrollUp if super::contains(self.hits.monitor_body, point) => {
-                self.machine_monitor.scroll = self.machine_monitor.scroll.saturating_sub(3);
+                self.machine_monitor.scroll = self.machine_monitor.scroll.min(self.hits.monitor_max_scroll).saturating_sub(3);
                 outcome.repaint = true;
             }
             MouseEventKind::ScrollDown if super::contains(self.hits.monitor_body, point) => {
