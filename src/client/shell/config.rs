@@ -48,7 +48,17 @@ impl ClientShellState {
             })
             .collect::<Vec<_>>();
         remote_collapsed_groups.sort_by(|left, right| left.profile_id.cmp(&right.profile_id));
+        let mut collapsed_machines = self
+            .collapsed_endpoints
+            .iter()
+            .map(|id| match id {
+                ClientEndpointId::Local => "local".to_owned(),
+                ClientEndpointId::Ssh(profile) => profile.to_string(),
+            })
+            .collect::<Vec<_>>();
+        collapsed_machines.sort();
         let preferences = preferences::ClientChromePreferences {
+            collapsed_machines: Some(collapsed_machines),
             monitor_expanded: Some(self.machine_monitor.expanded),
             sidebar_width: self.sidebar_width_manual.then_some(self.sidebar_width),
             sidebar_section_split: self

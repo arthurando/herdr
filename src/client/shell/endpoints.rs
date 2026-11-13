@@ -25,6 +25,7 @@ pub(crate) struct ClientShellEndpoint {
 }
 
 pub(super) struct MachineHit {
+    pub(super) group_toggle: Rect,
     pub(super) rect: Rect,
     pub(super) status_badge: Rect,
     pub(super) new_workspace: Rect,
@@ -91,6 +92,15 @@ impl ClientShellState {
             });
         }
 
+        next[1..].sort_by_key(|endpoint| endpoint.label.to_ascii_lowercase().starts_with("sid"));
+        if !self.machine_groups_initialized {
+            self.collapsed_endpoints.extend(
+                next.iter()
+                    .filter(|endpoint| endpoint.label.to_ascii_lowercase().starts_with("sid"))
+                    .map(|endpoint| endpoint.endpoint_id.clone()),
+            );
+            self.machine_groups_initialized = true;
+        }
         if !next
             .iter()
             .any(|endpoint| endpoint.endpoint_id == self.active_endpoint_id)
@@ -747,7 +757,7 @@ pub(super) fn endpoint_status_presentation(
 pub(super) fn local_endpoint() -> ClientShellEndpoint {
     ClientShellEndpoint {
         endpoint_id: ClientEndpointId::Local,
-        label: "Local".into(),
+        label: "Omen".into(),
         status: ClientEndpointStatus::Online,
         snapshot: None,
         snapshot_generation: None,

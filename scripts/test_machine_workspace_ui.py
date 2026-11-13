@@ -87,7 +87,21 @@ try:
             (root / (name + '.txt')).write_text('\n'.join(lines), encoding='utf-8')
         return lines
     lines = capture('sidebar')
-    assert any('Local' in line for line in lines), 'Local machine row is absent'
+    machine_label = 'Local' if mode == 'before' else 'Omen'
+    assert any(machine_label in line for line in lines), machine_label + ' machine row is absent'
+    if mode == 'after':
+        machine_y = next(y for y, line in enumerate(lines) if 'Omen' in line and '(+)' in line)
+        def disclosure():
+            proc.write(f'\x1b[<0;2;{machine_y + 1}M\x1b[<0;2;{machine_y + 1}m')
+            time.sleep(1)
+        disclosure()
+        hidden = capture('machine-collapsed')
+        assert any('> Omen' in line for line in hidden), 'machine did not collapse'
+        assert cli('workspace', 'list') == before, 'collapse changed runtime workspaces'
+        disclosure()
+        lines = capture('machine-expanded')
+        assert any('v Omen' in line for line in lines), 'machine did not expand'
+        assert cli('workspace', 'list') == before, 'expand changed runtime workspaces'
     if mode == 'monitor':
         assert not any('Sid VM' in line for line in lines), 'monitor should start collapsed'
         x, y = next((line.index('Monitor'), y) for y, line in enumerate(lines) if 'Monitor' in line)
@@ -110,10 +124,10 @@ try:
         assert any('Invalid monitor data' in line for line in invalid), 'invalid source not visible'
         assert not any('RAM' in line for line in invalid), 'invalid source retained healthy bars'
     if mode == 'before':
-        assert any('[+] New' in line for line in lines), 'Baseline footer control is absent'
+        assert any('[+] New' in line or ('Local' in line and '(+)' in line) for line in lines), 'Baseline session control is absent'
     if mode == 'after':
-        matches = [(line.index('(+)') + 1, y) for y, line in enumerate(lines) if '(+)' in line and 'Local' in line]
-        assert matches, 'Local (+) absent: ' + repr(lines)
+        matches = [(line.index('(+)') + 1, y) for y, line in enumerate(lines) if '(+)' in line and 'Omen' in line]
+        assert matches, 'Omen (+) absent: ' + repr(lines)
         assert not any(('[+] New' in line for line in lines))
         x, y = matches[0]
         before = cli('workspace', 'list')

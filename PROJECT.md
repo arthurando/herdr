@@ -18,7 +18,7 @@ repository; this is a user-owned fork.
   cannot provide an archive list. When session persistence is disabled, list and
   resume return `archive_disabled` rather than reporting an empty archive.
 
-- The default sidebar groups sessions under always-expanded machines. Session names
+- The default sidebar groups sessions under collapsible machines. Session names
   use bold rainbow colours; multi-pane workspaces retain separate pane targets.
   Each expanded machine row has a (+) control that creates a session on that machine
   after its connection is active. The current session has a bright rounded border. Archive and menu controls remain at the bottom. Priority order applies
@@ -211,3 +211,11 @@ Native proof: `python scripts/test_machine_workspace_ui.py <candidate.exe>
 <new-output-directory> --monitor-snapshot <fresh-collector-snapshot.json>`.
 This starts its own isolated server/client, captures actual ConPTY output,
 checks expand/collapse and rejects invalid data. It never sends input to user panes.
+
+## Machine group presentation
+
+Machine disclosure arrows hide or show that machine's sessions without changing the active pane.
+The machine name retains activation and (+) retains session creation. Choices persist
+by endpoint identity in client chrome preferences. Omen replaces the local machine label.
+SID profiles follow other remote machines and start collapsed when no saved choice exists.
+Keyboard session navigation can reveal a hidden target. No server or protocol change is required.

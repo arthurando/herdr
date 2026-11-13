@@ -932,6 +932,7 @@ pub(crate) struct ClientShellState {
     pub(super) endpoints: Vec<ClientShellEndpoint>,
     pub(super) active_endpoint_id: ClientEndpointId,
     pub(super) collapsed_endpoints: HashSet<ClientEndpointId>,
+    pub(super) machine_groups_initialized: bool,
     pub(super) mode: ClientShellMode,
     pub(super) navigate_workspace_id: Option<WorkspaceNavigationTarget>,
     pub(super) pending_workspace_highlight: Option<PendingWorkspaceHighlight>,
@@ -1114,7 +1115,21 @@ impl ClientShellState {
             hits: ShellHitMap::default(),
             endpoints: vec![local_endpoint()],
             active_endpoint_id: ClientEndpointId::Local,
-            collapsed_endpoints: HashSet::new(),
+            machine_groups_initialized: preferences.collapsed_machines.is_some(),
+            collapsed_endpoints: preferences
+                .collapsed_machines
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|id| {
+                    if id == "local" {
+                        Some(ClientEndpointId::Local)
+                    } else {
+                        crate::client::endpoint::ProfileId::parse(id)
+                            .ok()
+                            .map(ClientEndpointId::Ssh)
+                    }
+                })
+                .collect(),
             mode: ClientShellMode::Terminal,
             navigate_workspace_id: None,
             pending_workspace_highlight: None,

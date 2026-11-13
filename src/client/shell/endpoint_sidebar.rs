@@ -28,6 +28,9 @@ pub(super) fn render_collapsed(
     let reveal = std::mem::take(state.reveal_navigation_workspace);
     for endpoint in state.endpoints {
         total_rows += 1;
+        if state.collapsed_endpoints.contains(&endpoint.endpoint_id) {
+            continue;
+        }
         if let Some(snapshot) = endpoint.snapshot.as_deref() {
             if reveal {
                 if let Some(target) = state
@@ -67,7 +70,7 @@ pub(super) fn render_collapsed(
             skip -= 1;
         } else {
             let label = if endpoint.endpoint_id.is_local() {
-                "L".to_owned()
+                "O".to_owned()
             } else {
                 (index + 1).to_string()
             };
@@ -76,7 +79,15 @@ pub(super) fn render_collapsed(
                 rect.x,
                 rect.y,
                 rect.width.saturating_sub(1),
-                &format!(" {label}"),
+                &format!(
+                    "{}{}",
+                    if state.collapsed_endpoints.contains(&endpoint.endpoint_id) {
+                        ">"
+                    } else {
+                        "v"
+                    },
+                    label
+                ),
                 Style::default().fg(if endpoint.status == ClientEndpointStatus::Online {
                     palette.text
                 } else {
@@ -101,12 +112,16 @@ pub(super) fn render_collapsed(
                 );
             }
             hits.machines.push(MachineHit {
+                group_toggle: Rect::new(rect.x, rect.y, if rect.width > 5 { 3 } else { 1 }, 1),
                 rect,
                 status_badge,
                 new_workspace: Rect::default(),
                 endpoint_id: endpoint.endpoint_id.clone(),
             });
             y = y.saturating_add(1);
+        }
+        if state.collapsed_endpoints.contains(&endpoint.endpoint_id) {
+            continue;
         }
         let Some(snapshot) = endpoint.snapshot.as_deref() else {
             continue;
@@ -309,6 +324,9 @@ pub(super) fn render_expanded(
     let mut rows = Vec::new();
     for (endpoint_index, endpoint) in state.endpoints.iter().enumerate() {
         rows.push(Row::Endpoint(endpoint_index));
+        if state.collapsed_endpoints.contains(&endpoint.endpoint_id) {
+            continue;
+        }
         if let Some(snapshot) = endpoint.snapshot.as_deref() {
             let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
                 .unwrap_or(&empty_collapsed_groups);
@@ -510,13 +528,18 @@ pub(super) fn render_expanded(
                 let (status_badge, new_workspace) = render_endpoint_row(
                     buffer,
                     rect,
-                    "",
+                    if state.collapsed_endpoints.contains(&endpoint.endpoint_id) {
+                        ">"
+                    } else {
+                        "v"
+                    },
                     endpoint,
                     false,
                     state.machine_diagnostics,
                     palette,
                 );
                 hits.machines.push(MachineHit {
+                    group_toggle: Rect::new(rect.x, rect.y, if rect.width > 5 { 3 } else { 1 }, 1),
                     rect,
                     status_badge,
                     new_workspace,
@@ -571,6 +594,9 @@ pub(super) fn render_expanded(
             }
             Row::Workspace { endpoint, entry } => {
                 let endpoint = &state.endpoints[*endpoint];
+                if state.collapsed_endpoints.contains(&endpoint.endpoint_id) {
+                    continue;
+                }
                 let Some(snapshot) = endpoint.snapshot.as_deref() else {
                     continue;
                 };

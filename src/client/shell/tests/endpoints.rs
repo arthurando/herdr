@@ -84,7 +84,6 @@ fn unified_sidebar_keeps_multiple_panes_and_footer_controls() {
     second.focused = false;
     projection.panes.push(second);
     state.set_endpoint_snapshot(&remote, Box::new(projection));
-    state.collapsed_endpoints.insert(remote.clone());
     let frame = state.compose(100, 28).expect("unified sidebar");
     let text = frame
         .cells
@@ -241,12 +240,12 @@ fn local_only_uses_the_same_unified_sidebar() {
 }
 
 #[test]
-fn compact_machine_rows_remain_expanded() {
+fn compact_machine_rows_respect_machine_collapse() {
     let (mut state, remote) = state_with_remote();
     state.sidebar_collapsed = true;
     state.collapsed_endpoints.insert(remote.clone());
     state.compose(100, 28).unwrap();
-    assert!(state
+    assert!(!state
         .hits
         .workspaces
         .iter()
@@ -1059,7 +1058,7 @@ fn sidebar_renders_local_and_saved_ssh_endpoints_with_status() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("Local"));
+    assert!(text.contains("Omen"));
     assert!(text.contains("Build"));
     assert!(text.contains("remote-workspace"));
     let local = state
@@ -1513,7 +1512,7 @@ fn active_workspace_is_the_only_highlight_when_machine_is_expanded() {
         buffer[(machine.x, machine.y)].bg,
         state.config.palette.active_row_bg
     );
-    assert!(state
+    assert!(!state
         .hits
         .workspaces
         .iter()
@@ -1558,7 +1557,7 @@ fn aggregate_agents_use_configured_rows_machine_token_and_status_colors() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("○ Local · local agent"), "frame: {text}");
+    assert!(text.contains("○ Omen · local agent"), "frame: {text}");
     assert!(text.contains("× Build · remote agent"), "frame: {text}");
     assert!(text.contains("grouped"), "frame: {text}");
     let toggle = state.hits.agent_sort_toggle;
@@ -1626,7 +1625,7 @@ fn current_workspace_agent_view_excludes_same_workspace_id_on_other_machine() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("Local · local agent"), "frame: {text}");
+    assert!(text.contains("Omen · local agent"), "frame: {text}");
     assert!(!text.contains("Build · remote agent"), "frame: {text}");
 
     assert!(state.activate_endpoint_projection(&endpoint_id));
@@ -1644,7 +1643,7 @@ fn current_workspace_agent_view_excludes_same_workspace_id_on_other_machine() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(!text.contains("Local · local agent"), "frame: {text}");
+    assert!(!text.contains("Omen · local agent"), "frame: {text}");
     assert!(text.contains("Build · remote agent"), "frame: {text}");
 }
 
@@ -1713,7 +1712,7 @@ fn current_workspace_or_blocked_keeps_foreign_attention_only() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("Local · local agent"), "frame: {text}");
+    assert!(text.contains("Omen · local agent"), "frame: {text}");
     assert!(!text.contains("Build · remote idle"), "frame: {text}");
     assert!(text.contains("Build · remote blocked"), "frame: {text}");
 }
@@ -1769,7 +1768,7 @@ fn selected_default_view_ignores_inactive_endpoint_projection() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("Local · local agent"), "frame: {text}");
+    assert!(text.contains("Omen · local agent"), "frame: {text}");
     assert!(text.contains("Build · remote agent"), "frame: {text}");
     assert!(text.contains("grouped"), "frame: {text}");
 }
@@ -1855,7 +1854,7 @@ fn legacy_custom_views_keep_v1_per_endpoint_projection() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("Local · local agent"), "frame: {text}");
+    assert!(text.contains("Omen · local agent"), "frame: {text}");
     assert!(text.contains("Build · remote agent"), "frame: {text}");
 }
 
@@ -1909,7 +1908,7 @@ fn selected_custom_sort_orders_rendering_and_indexed_navigation() {
         .join("\n");
     assert!(
         text.find("Build · remote idle").expect("remote row")
-            < text.find("Local · local blocked").expect("local row"),
+            < text.find("Omen · local blocked").expect("local row"),
         "frame: {text}"
     );
 
@@ -2035,7 +2034,7 @@ fn priority_order_keeps_machine_groups_and_navigation_aligned() {
     };
     let text = frame_text(&mut state);
     assert!(
-        text.find("Local · local agent").expect("local agent")
+        text.find("Omen · local agent").expect("local agent")
             < text.find("Build · remote agent").expect("remote agent")
     );
 
@@ -2043,7 +2042,7 @@ fn priority_order_keeps_machine_groups_and_navigation_aligned() {
     state.set_endpoint_snapshot(&endpoint_id, Box::new(remote.clone()));
     let text = frame_text(&mut state);
     assert!(
-        text.find("Local · local agent").expect("local agent")
+        text.find("Omen · local agent").expect("local agent")
             < text.find("Build · remote agent").expect("remote agent")
     );
 
@@ -2051,7 +2050,7 @@ fn priority_order_keeps_machine_groups_and_navigation_aligned() {
     state.set_endpoint_snapshot(&endpoint_id, Box::new(remote));
     let text = frame_text(&mut state);
     assert!(
-        text.find("Local · local agent").expect("local agent")
+        text.find("Omen · local agent").expect("local agent")
             < text.find("Build · remote agent").expect("remote agent")
     );
     let mut outcome = ClientShellInput::default();
@@ -2204,7 +2203,7 @@ fn machine_click_activates_without_collapsing_sessions() {
             .rect;
         let outcome = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
-            column: machine.x,
+            column: machine.x + if compact { 1 } else { 4 },
             row: machine.y,
             modifiers: KeyModifiers::empty(),
         })]);
@@ -2545,11 +2544,11 @@ fn navigator_uses_machine_parents_only_for_federated_clients() {
             .iter()
             .map(|row| row.label.as_str())
             .collect::<Vec<_>>(),
-        vec!["Local", "Build"]
+        vec!["Omen", "Build"]
     );
     assert!(rows.iter().all(|row| {
         matches!(row.target, ClientNavigatorTarget::Machine { .. })
-            || (!row.label.contains("Local ·") && !row.label.contains("Build ·"))
+            || (!row.label.contains("Omen ·") && !row.label.contains("Build ·"))
     }));
     assert!(rows.iter().all(|row| match row.target {
         ClientNavigatorTarget::Machine { .. } => row.depth == 0 && row.status.is_none(),
@@ -3428,4 +3427,49 @@ fn monitor_footer_toggle_preserves_menu_and_session_area() {
     state.compose(100, 28).unwrap();
     assert_eq!(state.hits.workspace_body.height, height);
     assert!(state.hits.monitor_body.is_empty());
+}
+
+#[test]
+fn machine_disclosure_hides_sessions_without_runtime_actions() {
+    for compact in [false, true] {
+        let (mut state, remote) = state_with_remote();
+        state.sidebar_collapsed = compact;
+        state.compose(120, 40).unwrap();
+        let before = state.active_endpoint_id.clone();
+        for collapsed in [true, false] {
+            let hit = state.hits.machines.iter().find(|hit| hit.endpoint_id == remote).unwrap();
+            let point = (hit.group_toggle.x, hit.group_toggle.y);
+            let mut outcome = ClientShellInput::default();
+            assert!(state.handle_endpoint_machine_click(point, &mut outcome));
+            assert!(outcome.actions.is_empty());
+            assert_eq!(state.active_endpoint_id, before);
+            assert_eq!(state.collapsed_endpoints.contains(&remote), collapsed);
+            assert!(state.endpoint_is_online(&remote));
+            state.compose(120, 40).unwrap();
+            assert_eq!(state.hits.workspaces.iter().any(|hit| hit.endpoint_id == remote), !collapsed);
+        }
+    }
+}
+
+#[test]
+fn machine_catalog_puts_sid_below_vps_with_saved_collapse_choice() {
+    let path = std::env::temp_dir().join(format!("herdr-machine-groups-{}.json", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let config = ClientShellConfig::from_config(&Config::default()).with_preferences_path(path.clone());
+    let mut state = ClientShellState::new(config);
+    let sid = SavedSshEndpoint::new("Sid VM", "sid-vm", "default").unwrap();
+    let vps = SavedSshEndpoint::new("VPS", "vps", "default").unwrap();
+    let sid_id = ClientEndpointId::Ssh(sid.id.clone());
+    let profiles = [sid, vps];
+    state.set_endpoint_catalog(&profiles);
+    assert_eq!(state.endpoints.iter().map(|e| e.label.as_str()).collect::<Vec<_>>(), ["Omen", "VPS", "Sid VM"]);
+    assert!(state.collapsed_endpoints.contains(&sid_id));
+    state.collapsed_endpoints.remove(&sid_id);
+    state.collapsed_endpoints.insert(ClientEndpointId::Local);
+    state.persist_chrome_preferences(&mut ClientShellInput::default());
+    let mut restored = ClientShellState::new(ClientShellConfig::from_config(&Config::default()).with_preferences_path(path.clone()));
+    restored.set_endpoint_catalog(&profiles);
+    assert!(!restored.collapsed_endpoints.contains(&sid_id));
+    assert!(restored.collapsed_endpoints.contains(&ClientEndpointId::Local));
+    std::fs::remove_file(path).unwrap();
 }

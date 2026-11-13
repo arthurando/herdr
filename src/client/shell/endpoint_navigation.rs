@@ -89,6 +89,14 @@ impl ClientShellState {
             return false;
         };
         let endpoint_id = hit.endpoint_id.clone();
+        if super::contains(hit.group_toggle, point) {
+            if !self.collapsed_endpoints.remove(&endpoint_id) {
+                self.collapsed_endpoints.insert(endpoint_id);
+            }
+            self.persist_chrome_preferences(outcome);
+            outcome.repaint = true;
+            return true;
+        }
         let create_workspace = super::contains(hit.new_workspace, point);
         self.pending_machine_workspace = None;
         if create_workspace {
