@@ -112,6 +112,48 @@ CPU sample, because the latter cannot identify input and RPC queue delay.
 The prior local-mode experiment proves its explicit tools only, not ordinary
 remote echo, remote application wheel response or cross-machine latency.
 
+## Sid VM native Claude recognition
+
+The stock Sid VM binary dated 2026-10-26 does not recognize `claude-bin`.
+The existing fix is commit `42ffed3039c2965a32cb951657db2c965e6b55f8`.
+It adds the exact alias and its unit assertion. No new recognition patch is required.
+Official `herdr:claude` lifecycle reports carry session identity only. They cannot
+force the missing runtime agent label. Never spoof pane environment or reported state.
+
+The verified Linux candidate is `0.9.5-local.sid-claude-bin-42ffed30`, protocol 22,
+SHA-256 `1102e4f291619692b4c474246116f0127fbf9d85bd68bf74f094ed96a298c974`.
+It was built on permanent Helsinki in a 3 GiB capped offload container, with
+Rust 1.96.1, Zig 0.16.0 and one Cargo job. Its dynamic dependencies are libc and libm.
+The optimized full application test compile was aborted at the 3 GiB cap after
+memory reclaim stalled progress. It did not pass. An isolated test compiled the
+unchanged parser function and its helpers from the selected source and passed.
+The production release build then passed with cached dependencies and unchanged flags.
+
+Linux handoff uses the supported `server.live_handoff` JSON API with an explicit
+candidate path, exact expected version and protocol. It transfers existing PTY
+descriptors and waits for the replacement before commit. Keep the old binary for rollback.
+Do not replace this with a server stop or service restart while jobs are active.
+
+For a systemd `Type=simple` unit with `KillMode=control-group`, first verify and
+reload `ExitType=cgroup` without restarting the unit. Otherwise an old main PID exit
+can kill the replacement and its PTYs. The owned systemd fixture proved old-to-new
+and new-to-old handoffs: the shell PID, foreground job PID, advancing heartbeat,
+pane ID and native session identity/source stayed intact. The old binary returned
+`agent_not_found`; the candidate recognized the same controlled `claude-bin` process.
+Fixture metadata is synthetic. It does not prove an actual session read feedback.
+
+`ExitType=cgroup` keeps the unit active with `MainPID=0` after handoff. It does not
+provide replacement main-process supervision. Treat that recovery limit explicitly.
+Native handoff can regenerate terminal IDs. Re-read the verified native session
+and current terminal ID before refreshing a receiver binding. Actual Sid activation
+also retained the original Claude and shell PIDs, their start times and the native
+session identity. The fixed server then recognized the real Claude session as idle.
+
+Recipes: `scripts/smoke_cross_version_systemd_handoff.py` and
+`scripts/native_handoff_rpc.py`. Evidence is under
+`root:outputs/2026-11-17-herdr-native-runtime/` on Sid VM. The lead performs actual activation,
+then verifies the real agent identity, retained jobs and feedback delivery separately.
+
 
 ## Endpoint activation latency
 
