@@ -1,7 +1,7 @@
 """Capture an isolated Windows client and verify its machine (+) control.
 
 Requires pywinpty, pyte and Pillow. No desktop input is injected.
-Usage: python scripts/test_machine_workspace_ui.py EXE OUTPUT_DIR [--baseline|--sidebar-panes]
+Usage: python scripts/test_machine_workspace_ui.py EXE OUTPUT_DIR [--baseline|--sidebar-panes|--sidebar-click] [--server-exe EXE] [--dimensions COLSxROWS]
 """
 import sys, os, time, json, threading, subprocess, uuid
 from pathlib import Path
@@ -9,8 +9,10 @@ from winpty import PtyProcess
 import pyte
 from PIL import Image, ImageDraw, ImageFont
 exe = str(Path(sys.argv[1]).resolve())
+server_exe = str(Path(sys.argv[sys.argv.index('--server-exe') + 1]).resolve()) if '--server-exe' in sys.argv else exe
 root = Path(sys.argv[2]).resolve()
-mode = ('panes' if '--sidebar-panes' in sys.argv[3:] else
+mode = ('click' if '--sidebar-click' in sys.argv[3:] else
+        'panes' if '--sidebar-panes' in sys.argv[3:] else
         'monitor' if '--monitor-snapshot' in sys.argv[3:] else
         'before' if '--baseline' in sys.argv[3:] else 'after')
 root.mkdir(parents=True, exist_ok=False)
@@ -35,6 +37,8 @@ def cli(*args):
         raise RuntimeError(str(args) + ': ' + r.stdout + r.stderr)
     return r.stdout
 columns, rows = (100, 42) if mode == 'monitor' else (100, 28)
+if '--dimensions' in sys.argv:
+    columns, rows = map(int, sys.argv[sys.argv.index('--dimensions') + 1].split('x'))
 screen = pyte.Screen(columns, rows)
 stream = pyte.Stream(screen)
 lock = threading.Lock()
@@ -43,7 +47,7 @@ proc = None
 server = None
 try:
     log = (root / 'server.log').open('w')
-    server = subprocess.Popen([exe, 'server'], env=env, cwd=root, stdout=log, stderr=log, creationflags=subprocess.CREATE_NO_WINDOW)
+    server = subprocess.Popen([server_exe, 'server'], env=env, cwd=root, stdout=log, stderr=log, creationflags=subprocess.CREATE_NO_WINDOW)
     for i in range(40):
         try:
             before = cli('workspace', 'list')
@@ -52,7 +56,7 @@ try:
             time.sleep(0.25)
     else:
         raise RuntimeError('fixture server did not start')
-    if mode == 'panes':
+    if mode in ('panes', 'click'):
         cli('workspace', 'create', '--label', 'Street', '--focus')
         before = cli('workspace', 'list')
     (root / 'initial-workspaces.json').write_text(before)
@@ -73,6 +77,14 @@ try:
     if mode == 'panes':
         pane_id = json.loads(cli('pane', 'list'))['result']['panes'][0]['pane_id']
         cli('pane', 'split', pane_id, '--direction', 'right', '--no-focus')
+        time.sleep(2)
+    if mode == 'click':
+        first = json.loads(cli('pane', 'list'))['result']['panes'][0]['pane_id']
+        cli('tab', 'create', '--workspace', 'w1', '--label', 'Second', '--no-focus')
+        panes = json.loads(cli('pane', 'list'))['result']['panes']
+        second = next(pane['pane_id'] for pane in panes if pane['pane_id'] != first)
+        cli('pane', 'run', first, 'cmd.exe', '/c', 'echo FIRST_PANE_VISIBLE & pause')
+        cli('pane', 'run', second, 'cmd.exe', '/c', 'echo SECOND_PANE_VISIBLE & pause')
         time.sleep(2)
 
     def capture(name):
@@ -96,10 +108,30 @@ try:
             (root / (name + '.txt')).write_text('\n'.join(lines), encoding='utf-8')
         return lines
     lines = capture('sidebar')
-    if mode == 'panes':
+    if mode in ('panes', 'click'):
         visible = [line[:25] for line in lines]
         assert sum('Street' in line for line in visible) == 2, 'main or other pane is missing, or the focused pane is duplicated'
         assert len(json.loads(cli('pane', 'list'))['result']['panes']) == 2, 'fixture must contain two panes'
+    if mode == 'click':
+        assert any('FIRST_PANE_VISIBLE' in line for line in lines), 'first pane content is absent'
+        street_rows = [y for y, line in enumerate(lines) if 'Street' in line[:25]]
+        main_y = street_rows[0]
+        sub_y = street_rows[1]
+        assert lines[main_y - 1][0] == '╭', 'main pane has no active border'
+        assert lines[sub_y - 1][1] != '╭', 'inactive sub pane has an active border'
+        proc.write(f'\x1b[<0;10;{sub_y + 1}M\x1b[<0;10;{sub_y + 1}m')
+        time.sleep(4)
+        after_click = capture('sub-click')
+        (root / 'after-sub-click.json').write_text(cli('pane', 'list'))
+        assert any('SECOND_PANE_VISIBLE' in line for line in after_click), 'click did not display the second pane'
+        assert after_click[main_y - 1][0] != '╭', 'main border stayed active after sub click'
+        assert after_click[sub_y - 1][1] == '╭', 'sub border did not become active'
+        assert any(pane['pane_id'] == second and pane['focused'] for pane in json.loads(cli('pane', 'list'))['result']['panes']), 'click did not focus the second pane'
+        proc.write(f'\x1b[<0;10;{main_y + 1}M\x1b[<0;10;{main_y + 1}m')
+        time.sleep(4)
+        back = capture('main-click')
+        assert any('FIRST_PANE_VISIBLE' in line for line in back), 'main click did not restore the first pane'
+        assert back[main_y - 1][0] == '╭' and back[sub_y - 1][1] != '╭', 'main border did not return'
     machine_label = 'Local' if mode == 'before' else 'Omen'
     assert any(machine_label in line for line in lines), machine_label + ' machine row is absent'
     if mode == 'after':

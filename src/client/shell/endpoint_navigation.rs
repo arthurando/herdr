@@ -69,7 +69,26 @@ impl ClientShellState {
                 endpoint == &press.endpoint_id && super::contains(*rect, point)
             })
             .map(|(_, _, pane)| pane.clone());
+        let main_pane = self
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.endpoint_id == press.endpoint_id)
+            .and_then(|endpoint| endpoint.snapshot.as_deref())
+            .and_then(|snapshot| {
+                let pane_count = snapshot
+                    .panes
+                    .iter()
+                    .filter(|pane| pane.workspace_id == press.workspace_id)
+                    .count();
+                if pane_count > 1 {
+                    super::endpoint_sidebar::main_pane_id(snapshot, &press.workspace_id)
+                } else {
+                    None
+                }
+            })
+            .map(str::to_owned);
         let target = pane
+            .or(main_pane)
             .map(ClientEndpointFocusTarget::Pane)
             .unwrap_or(ClientEndpointFocusTarget::Workspace(press.workspace_id));
         self.focus_or_activate(press.endpoint_id, target, outcome);

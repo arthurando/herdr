@@ -155,7 +155,7 @@ fn unified_sidebar_keeps_multiple_panes_and_footer_controls() {
 }
 
 #[test]
-fn expanded_machine_lists_other_panes_without_repeating_focused_pane() {
+fn expanded_machine_keeps_main_and_sub_cards_stable_when_focus_changes() {
     let (mut state, remote) = state_with_remote();
     let mut projection = snapshot();
     projection.boot_id = "remote-boot".into();
@@ -178,6 +178,7 @@ fn expanded_machine_lists_other_panes_without_repeating_focused_pane() {
         },
     ];
     state.set_endpoint_snapshot(&remote, Box::new(projection));
+    assert!(state.activate_endpoint_projection(&remote));
 
     let frame = state.compose(100, 28).expect("expanded machine sidebar");
     let remote_panes = state
@@ -187,13 +188,38 @@ fn expanded_machine_lists_other_panes_without_repeating_focused_pane() {
         .filter(|(_, endpoint, _)| endpoint == &remote)
         .map(|(_, _, pane)| pane.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(remote_panes, vec!["pane_1"]);
-    assert!(state
+    assert_eq!(remote_panes, vec!["pane_2"]);
+    let main = state
         .hits
         .workspaces
         .iter()
-        .any(|hit| hit.endpoint_id == remote && hit.workspace_id == "ws_1"));
+        .find(|hit| hit.endpoint_id == remote && hit.workspace_id == "ws_1")
+        .unwrap()
+        .rect;
+    let sub = state
+        .hits
+        .endpoint_agents
+        .iter()
+        .find(|(_, endpoint, pane)| endpoint == &remote && pane == "pane_2")
+        .unwrap()
+        .0;
+    let buffer = frame.to_ratatui_buffer().unwrap();
+    assert_ne!(buffer[(main.x, main.y)].fg, state.config.palette.accent);
+    assert_eq!(buffer[(sub.x, sub.y)].fg, state.config.palette.accent);
     assert!(frame_rows(&frame).join("\n").contains("Street"));
+    let mut click = ClientShellInput::default();
+    state.finish_endpoint_workspace_press(
+        ClientWorkspacePress {
+            endpoint_id: remote.clone(),
+            workspace_id: "ws_1".into(),
+            start_column: main.x + 2,
+            start_row: main.y + 1,
+        },
+        &mut click,
+    );
+    assert!(matches!(click.actions.as_slice(),
+        [ClientShellAction::Endpoint { request, .. }]
+        if matches!(&request.method, crate::api::schema::Method::PaneFocus(target) if target.pane_id == "pane_1")));
 
     let mut changed = state
         .endpoints
@@ -213,7 +239,7 @@ fn expanded_machine_lists_other_panes_without_repeating_focused_pane() {
         agent.focused = agent.pane_id == "pane_1";
     }
     state.set_endpoint_snapshot(&remote, Box::new(changed));
-    state.compose(100, 28).expect("focused pane changed");
+    let frame = state.compose(100, 28).expect("focused pane changed");
     let remote_panes = state
         .hits
         .endpoint_agents
@@ -222,6 +248,9 @@ fn expanded_machine_lists_other_panes_without_repeating_focused_pane() {
         .map(|(_, _, pane)| pane.as_str())
         .collect::<Vec<_>>();
     assert_eq!(remote_panes, vec!["pane_2"]);
+    let buffer = frame.to_ratatui_buffer().unwrap();
+    assert_eq!(buffer[(main.x, main.y)].fg, state.config.palette.accent);
+    assert_ne!(buffer[(sub.x, sub.y)].fg, state.config.palette.accent);
 }
 
 #[test]

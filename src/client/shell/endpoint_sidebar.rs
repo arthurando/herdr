@@ -2,6 +2,24 @@ use super::render::{display_width, put_right_text, put_text, ShellRenderState};
 use super::*;
 use ratatui::style::Color;
 
+pub(super) fn main_pane_id<'a>(
+    snapshot: &'a ClientShellSnapshot,
+    workspace_id: &str,
+) -> Option<&'a str> {
+    snapshot
+        .panes
+        .iter()
+        .filter(|pane| pane.workspace_id == workspace_id)
+        .min_by_key(|pane| {
+            snapshot
+                .tabs
+                .iter()
+                .find(|tab| tab.tab_id == pane.tab_id)
+                .map_or(usize::MAX, |tab| tab.number)
+        })
+        .map(|pane| pane.pane_id.as_str())
+}
+
 fn collapsed_groups_for_endpoint<'a>(
     state: &'a ShellRenderState<'_>,
     endpoint_id: &ClientEndpointId,
@@ -371,7 +389,7 @@ pub(super) fn render_expanded(
                             .iter()
                             .copied()
                             .filter(|index| {
-                                snapshot.focused_pane_id.as_deref()
+                                main_pane_id(snapshot, workspace_id)
                                     != Some(agents[*index].agent.pane_id.as_str())
                             })
                             .map(Row::Agent),
@@ -560,6 +578,9 @@ pub(super) fn render_expanded(
             }
             Row::Agent(index) => {
                 let agent = &agents[*index];
+                let current = &agent.endpoint_id == state.active_endpoint_id
+                    && agent.agent.focused
+                    && !agent.stale;
                 let height = (agent.agent.rows.len().max(1).min((u16::MAX - 2) as usize) as u16)
                     .saturating_add(2)
                     .min(body.height);
@@ -575,12 +596,22 @@ pub(super) fn render_expanded(
                 buffer.set_style(rect, Style::default().bg(palette.panel_bg));
                 let padding = u16::from(rect.height >= 3);
                 let content = Rect::new(
-                    rect.x,
+                    rect.x.saturating_add(u16::from(current)),
                     rect.y.saturating_add(padding),
-                    rect.width,
+                    rect.width.saturating_sub(2 * u16::from(current)),
                     rect.height.saturating_sub(2 * padding),
                 );
                 super::agent_sidebar::render_agent_row(buffer, content, &agent.agent, config);
+                if current {
+                    ratatui::widgets::Widget::render(
+                        ratatui::widgets::Block::default()
+                            .borders(ratatui::widgets::Borders::ALL)
+                            .border_type(ratatui::widgets::BorderType::Rounded)
+                            .border_style(Style::default().fg(palette.accent).add_modifier(Modifier::BOLD)),
+                        rect,
+                        buffer,
+                    );
+                }
                 if agent.stale {
                     buffer.set_style(
                         rect,
@@ -644,8 +675,11 @@ pub(super) fn render_expanded(
                 }
                 let rect = Rect::new(body.x, y, content_width, height);
                 let padding = u16::from(rect.height >= 3);
+                let main_pane_focused = main_pane_id(snapshot, &workspace.workspace_id)
+                    .is_none_or(|pane| snapshot.focused_pane_id.as_deref() == Some(pane));
                 let current = &endpoint.endpoint_id == state.active_endpoint_id
                     && workspace.focused
+                    && main_pane_focused
                     && endpoint.status == ClientEndpointStatus::Online;
                 let mut nested = Rect::new(
                     rect.x.saturating_add(if current { 1 } else { 2 }),

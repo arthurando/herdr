@@ -225,6 +225,10 @@ creation effect and captures the bright current-session border. `--baseline` cap
 requires installed pywinpty, pyte and Pillow; it stops only its own fixture server.
 `--sidebar-panes` creates an isolated two-pane workspace and checks that its
 main card and one other-pane card appear in the captured frame.
+`--sidebar-click` uses two tabs with distinct terminal text. It checks that a
+sub-card click changes the visible terminal and active border, then that a
+main-card click restores both. `--server-exe` can run the fixture against an
+older local server; `--dimensions COLSxROWS` checks a shorter terminal.
 Unit endpoint tests cover remote routing, prompts, offline targets and long labels.
 
 ## Machine monitor
