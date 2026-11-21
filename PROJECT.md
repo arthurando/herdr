@@ -248,7 +248,10 @@ VPS load is the one-minute load alongside CPU count. Temporary inventory errors
 remain visible. Rented CPU displays its server count and the longest elapsed time
 across those servers. A zero-server inventory displays count 0 and no elapsed time;
 an unknown worker age makes the longest elapsed time unknown. RunPod runtime is up.
-Unknown usage and elapsed values display unknown. Stopped rented CPU remains
+Unknown temporary usage displays "usage unavailable"; unknown elapsed values display unknown.
+Inset metric rows use small separated square segments within a visible battery track.
+Host dividers and right-aligned capacity/load details separate each source.
+Stopped rented CPU remains
 visible because the rental still exists; stopped RunPod is excluded.
 
 Design decision: the typed local snapshot keeps fleet monitoring separate from
@@ -278,3 +281,8 @@ For native Windows checks and release builds, set `RUSTFLAGS=-C target-feature=+
 explicitly and keep `CARGO_BUILD_JOBS=1`. Initialize the installed Visual Studio vcvars64
 before Cargo. Reuse the existing `CARGO_TARGET_DIR` and installed Zig executable.
 This avoids a full dependency rebuild; it does not change product compiler settings.
+
+Fast visual proof: set `HERDR_MONITOR_RENDER_OUTPUT` to a JSON output path and run
+`cargo test --bin herdr monitor_export_native_render -- --ignored`. The test reads
+the live local snapshot and exports the production Ratatui buffer. Render it with
+`python scripts/render_monitor_buffer.py <cells.json> <output.png>` before an optimized build.
