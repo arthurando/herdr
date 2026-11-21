@@ -164,6 +164,10 @@ The terminal does not distinguish a file drop from an ordinary path paste.
 
 ## Machine session controls
 
+The expanded machine shows the current workspace as its main card. When that
+workspace contains multiple panes, only other panes appear as sub cards. The
+focused pane stays in the main card and changes as focus moves.
+
 The expanded machine row owns its (+) hit area. The click retains one endpoint
 intent until the runtime finishes its existing activation fence. The active
 machine then opens the same required naming prompt as the keyboard shortcut.
@@ -177,6 +181,8 @@ It captures the actual ConPTY frame and checks that a Local (+) click adds exact
 one workspace only after the name is confirmed. It also proves cancel has no
 creation effect and captures the bright current-session border. `--baseline` captures the old client without clicking. The script
 requires installed pywinpty, pyte and Pillow; it stops only its own fixture server.
+`--sidebar-panes` creates an isolated two-pane workspace and checks that its
+main card and one other-pane card appear in the captured frame.
 Unit endpoint tests cover remote routing, prompts, offline targets and long labels.
 
 ## Machine monitor

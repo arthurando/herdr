@@ -154,24 +154,32 @@ impl ClientShellState {
                                     && row.workspace_id == workspace.workspace_id
                             })
                             .collect();
+                        let visible_agents: Vec<_> = if matching.len() > 1 {
+                            matching
+                                .iter()
+                                .copied()
+                                .filter(|row| {
+                                    snapshot.focused_pane_id.as_deref()
+                                        != Some(row.agent.pane_id.as_str())
+                                })
+                                .collect()
+                        } else {
+                            Vec::new()
+                        };
                         if endpoint.endpoint_id == target.endpoint_id
                             && workspace.workspace_id == target.workspace_id
                         {
-                            if matching.len() > 1 {
-                                index += 1 + matching
-                                    .iter()
-                                    .position(|row| row.agent.pane_id == pane_id)
-                                    .unwrap_or(0);
+                            if let Some(position) = visible_agents
+                                .iter()
+                                .position(|row| row.agent.pane_id == pane_id)
+                            {
+                                index += 1 + position;
                             }
                             self.workspace_scroll = index;
                             self.reveal_focused_workspace = false;
                             return;
                         }
-                        index += 1 + if matching.len() > 1 {
-                            matching.len()
-                        } else {
-                            0
-                        };
+                        index += 1 + visible_agents.len();
                     }
                 }
             }

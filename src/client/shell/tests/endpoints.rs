@@ -124,7 +124,7 @@ fn unified_sidebar_keeps_multiple_panes_and_footer_controls() {
         buffer[(machine.x, machine.y)].bg,
         state.config.palette.sidebar_bg
     );
-    assert!(state
+    assert!(!state
         .hits
         .endpoint_agents
         .iter()
@@ -155,6 +155,76 @@ fn unified_sidebar_keeps_multiple_panes_and_footer_controls() {
 }
 
 #[test]
+fn expanded_machine_lists_other_panes_without_repeating_focused_pane() {
+    let (mut state, remote) = state_with_remote();
+    let mut projection = snapshot();
+    projection.boot_id = "remote-boot".into();
+    projection.workspaces[0].label = "Street".into();
+    projection.focused_pane_id = Some("pane_2".into());
+    projection.panes[0].focused = false;
+    let mut other_pane = projection.panes[0].clone();
+    other_pane.pane_id = "pane_2".into();
+    other_pane.focused = true;
+    projection.panes.push(other_pane);
+    projection.agents = vec![
+        ClientShellAgent {
+            focused: false,
+            ..agent("other", AgentStatus::Idle, 1)
+        },
+        ClientShellAgent {
+            pane_id: "pane_2".into(),
+            focused: true,
+            ..agent("main", AgentStatus::Idle, 2)
+        },
+    ];
+    state.set_endpoint_snapshot(&remote, Box::new(projection));
+
+    let frame = state.compose(100, 28).expect("expanded machine sidebar");
+    let remote_panes = state
+        .hits
+        .endpoint_agents
+        .iter()
+        .filter(|(_, endpoint, _)| endpoint == &remote)
+        .map(|(_, _, pane)| pane.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(remote_panes, vec!["pane_1"]);
+    assert!(state
+        .hits
+        .workspaces
+        .iter()
+        .any(|hit| hit.endpoint_id == remote && hit.workspace_id == "ws_1"));
+    assert!(frame_rows(&frame).join("\n").contains("Street"));
+
+    let mut changed = state
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.endpoint_id == remote)
+        .unwrap()
+        .snapshot
+        .as_deref()
+        .unwrap()
+        .clone();
+    changed.revision += 1;
+    changed.focused_pane_id = Some("pane_1".into());
+    for pane in &mut changed.panes {
+        pane.focused = pane.pane_id == "pane_1";
+    }
+    for agent in &mut changed.agents {
+        agent.focused = agent.pane_id == "pane_1";
+    }
+    state.set_endpoint_snapshot(&remote, Box::new(changed));
+    state.compose(100, 28).expect("focused pane changed");
+    let remote_panes = state
+        .hits
+        .endpoint_agents
+        .iter()
+        .filter(|(_, endpoint, _)| endpoint == &remote)
+        .map(|(_, _, pane)| pane.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(remote_panes, vec!["pane_2"]);
+}
+
+#[test]
 fn unified_sidebar_reveals_keyboard_selected_pane() {
     let (mut state, _) = state_with_scrollable_agents();
     state.compose(100, 20).unwrap();
@@ -167,9 +237,9 @@ fn unified_sidebar_reveals_keyboard_selected_pane() {
     state.compose(100, 20).unwrap();
     assert!(state
         .hits
-        .endpoint_agents
+        .workspaces
         .iter()
-        .any(|(_, endpoint, pane)| endpoint.is_local() && pane == "pane_1"));
+        .any(|hit| hit.endpoint_id.is_local() && hit.workspace_id == "ws_1"));
 }
 
 #[test]
@@ -662,11 +732,22 @@ fn agent_navigation_reveals_offscreen_targets() {
             state.hits.workspace_max_scroll
         };
         state.compose(100, 12).unwrap();
-        assert!(!state
-            .hits
-            .endpoint_agents
-            .iter()
-            .any(|(_, endpoint, pane)| { endpoint == &endpoint_id && pane == pane_id }));
+        let target_visible = |state: &ClientShellState| {
+            if pane_id == "pane_1" {
+                state
+                    .hits
+                    .workspaces
+                    .iter()
+                    .any(|hit| hit.endpoint_id == endpoint_id && hit.workspace_id == "ws_1")
+            } else {
+                state
+                    .hits
+                    .endpoint_agents
+                    .iter()
+                    .any(|(_, endpoint, pane)| endpoint == &endpoint_id && pane == pane_id)
+            }
+        };
+        assert!(!target_visible(&state));
 
         let mut outcome = ClientShellInput::default();
         assert!(state.handle_endpoint_navigation(action, &mut outcome));
@@ -675,14 +756,7 @@ fn agent_navigation_reveals_offscreen_targets() {
             assert!(state.activate_endpoint_projection(&endpoint_id));
         }
         state.compose(100, 12).unwrap();
-        assert!(
-            state
-                .hits
-                .endpoint_agents
-                .iter()
-                .any(|(_, endpoint, pane)| { endpoint == &endpoint_id && pane == pane_id }),
-            "{action:?} must reveal the selected agent"
-        );
+        assert!(target_visible(&state), "{action:?} must reveal the selected agent");
     }
 }
 

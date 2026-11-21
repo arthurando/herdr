@@ -366,7 +366,16 @@ pub(super) fn render_expanded(
                 if let Some(matching) =
                     matching.filter(|matching| custom_view.is_none() && matching.len() > 1)
                 {
-                    rows.extend(matching.iter().copied().map(Row::Agent));
+                    rows.extend(
+                        matching
+                            .iter()
+                            .copied()
+                            .filter(|index| {
+                                snapshot.focused_pane_id.as_deref()
+                                    != Some(agents[*index].agent.pane_id.as_str())
+                            })
+                            .map(Row::Agent),
+                    );
                 }
             }
         }

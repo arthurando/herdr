@@ -1,7 +1,7 @@
 """Capture an isolated Windows client and verify its machine (+) control.
 
 Requires pywinpty, pyte and Pillow. No desktop input is injected.
-Usage: python scripts/test_machine_workspace_ui.py EXE OUTPUT_DIR [--baseline]
+Usage: python scripts/test_machine_workspace_ui.py EXE OUTPUT_DIR [--baseline|--sidebar-panes]
 """
 import sys, os, time, json, threading, subprocess, uuid
 from pathlib import Path
@@ -10,7 +10,9 @@ import pyte
 from PIL import Image, ImageDraw, ImageFont
 exe = str(Path(sys.argv[1]).resolve())
 root = Path(sys.argv[2]).resolve()
-mode = 'monitor' if '--monitor-snapshot' in sys.argv[3:] else ('before' if '--baseline' in sys.argv[3:] else 'after')
+mode = ('panes' if '--sidebar-panes' in sys.argv[3:] else
+        'monitor' if '--monitor-snapshot' in sys.argv[3:] else
+        'before' if '--baseline' in sys.argv[3:] else 'after')
 root.mkdir(parents=True, exist_ok=False)
 env = os.environ.copy()
 for key in list(env):
@@ -50,6 +52,9 @@ try:
             time.sleep(0.25)
     else:
         raise RuntimeError('fixture server did not start')
+    if mode == 'panes':
+        cli('workspace', 'create', '--label', 'Street', '--focus')
+        before = cli('workspace', 'list')
     (root / 'initial-workspaces.json').write_text(before)
     proc = PtyProcess.spawn([exe, 'client'], env=env, cwd=str(root), dimensions=(rows, columns))
 
@@ -65,6 +70,10 @@ try:
     thread = threading.Thread(target=read, daemon=True)
     thread.start()
     time.sleep(5)
+    if mode == 'panes':
+        pane_id = json.loads(cli('pane', 'list'))['result']['panes'][0]['pane_id']
+        cli('pane', 'split', pane_id, '--direction', 'right', '--no-focus')
+        time.sleep(2)
 
     def capture(name):
         with lock:
@@ -87,6 +96,10 @@ try:
             (root / (name + '.txt')).write_text('\n'.join(lines), encoding='utf-8')
         return lines
     lines = capture('sidebar')
+    if mode == 'panes':
+        visible = [line[:25] for line in lines]
+        assert sum('Street' in line for line in visible) == 2, 'main or other pane is missing, or the focused pane is duplicated'
+        assert len(json.loads(cli('pane', 'list'))['result']['panes']) == 2, 'fixture must contain two panes'
     machine_label = 'Local' if mode == 'before' else 'Omen'
     assert any(machine_label in line for line in lines), machine_label + ' machine row is absent'
     if mode == 'after':
