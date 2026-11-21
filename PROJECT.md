@@ -198,7 +198,9 @@ invalid or stale source cannot appear as fresh zero utilization or empty invento
 Host CPU is the collector's interval percent. Memory uses bytes and displays GiB.
 VPS load is the one-minute load alongside CPU count. Temporary inventory errors
 remain visible. Rented CPU creation time is labelled age; RunPod runtime is up.
-Unknown usage and elapsed values display unknown. Stopped rented CPU remains
+Unknown temporary usage displays "usage unavailable"; unknown elapsed values display unknown.
+Inset metric rows use small separated square segments within a visible battery track.
+Host dividers and right-aligned capacity/load details separate each source. Stopped rented CPU remains
 visible because the rental still exists; stopped RunPod is excluded.
 
 Design decision: the typed local snapshot keeps fleet monitoring separate from
@@ -211,3 +213,8 @@ Native proof: `python scripts/test_machine_workspace_ui.py <candidate.exe>
 <new-output-directory> --monitor-snapshot <fresh-collector-snapshot.json>`.
 This starts its own isolated server/client, captures actual ConPTY output,
 checks expand/collapse and rejects invalid data. It never sends input to user panes.
+
+Fast visual proof: set `HERDR_MONITOR_RENDER_OUTPUT` to a JSON output path and run
+`cargo test --bin herdr monitor_export_native_render -- --ignored`. The test reads
+the live local snapshot and exports the production Ratatui buffer. Render it with
+`python scripts/render_monitor_buffer.py <cells.json> <output.png>` before an optimized build.

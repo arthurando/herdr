@@ -59,6 +59,9 @@ struct Resource {
 enum Line {
     Text(String, bool),
     Bar(&'static str, Option<f64>),
+    Rule,
+    Detail(String),
+    Pair(String, String),
 }
 
 pub(super) struct MonitorPanel {
@@ -211,6 +214,7 @@ impl MonitorPanel {
             lines.push(Line::Text("STALE - last known data".into(), true));
         }
         for (id, label) in HOSTS {
+            lines.push(Line::Rule);
             lines.push(Line::Text(label.into(), true));
             let host = snapshot.hosts.iter().find(|host| host.id == id);
             let Some(host) = host.filter(|h| {
@@ -237,14 +241,11 @@ impl MonitorPanel {
                 memory.map(|(used, total)| used as f64 / total as f64 * 100.0),
             ));
             if let Some((used, total)) = memory {
-                lines.push(Line::Text(
-                    format!(
-                        "  {:.1}/{:.1} GiB",
-                        used as f64 / 1_073_741_824.0,
-                        total as f64 / 1_073_741_824.0
-                    ),
-                    false,
-                ));
+                lines.push(Line::Detail(format!(
+                    "{:.1} / {:.1} GiB",
+                    used as f64 / 1_073_741_824.0,
+                    total as f64 / 1_073_741_824.0
+                )));
             }
             if id != "sid-vm" {
                 let load = host
@@ -257,10 +258,11 @@ impl MonitorPanel {
                     .filter(|n| *n > 0)
                     .map(|n| n.to_string())
                     .unwrap_or_else(|| "?".into());
-                lines.push(Line::Text(format!("  Load {load} / {cores} CPU"), false));
+                lines.push(Line::Detail(format!("Load {load} / {cores} CPU")));
             }
         }
         let temporary = &snapshot.temporary;
+        lines.push(Line::Rule);
         lines.push(Line::Text("Temporary compute".into(), true));
         let temp_fresh = current && fresh(temporary.sampled_at.as_deref(), self.now, 180);
         if !temp_fresh {
@@ -304,10 +306,8 @@ impl MonitorPanel {
             } else {
                 "Rented CPU"
             };
-            lines.push(Line::Text(
-                format!("{kind}: {}", clean(&resource.label)),
-                true,
-            ));
+            lines.push(Line::Pair(kind.into(), clean(&resource.state)));
+            lines.push(Line::Text(clean(&resource.label), false));
             let elapsed = resource
                 .elapsed_seconds
                 .filter(|_| matches!(resource.elapsed_basis.as_str(), "created" | "uptime"));
@@ -336,22 +336,28 @@ impl MonitorPanel {
             } else {
                 "up"
             };
-            lines.push(Line::Text(
-                format!("  {} {basis} {elapsed}", clean(&resource.state)),
-                false,
-            ));
-            lines.push(Line::Bar(
-                if resource.kind == "runpod" {
-                    "GPU"
-                } else {
-                    "CPU"
-                },
-                percent(if resource.kind == "runpod" {
-                    resource.gpu_percent
-                } else {
-                    resource.cpu_percent
-                }),
-            ));
+            lines.push(Line::Detail(format!("{basis} {elapsed}")));
+            let usage = percent(if resource.kind == "runpod" {
+                resource.gpu_percent
+            } else {
+                resource.cpu_percent
+            });
+            if usage.is_none() {
+                lines.push(Line::Text("usage unavailable".into(), false));
+            } else {
+                lines.push(Line::Bar(
+                    if resource.kind == "runpod" {
+                        "GPU"
+                    } else {
+                        "CPU"
+                    },
+                    percent(if resource.kind == "runpod" {
+                        resource.gpu_percent
+                    } else {
+                        resource.cpu_percent
+                    }),
+                ));
+            }
         }
         lines
     }
@@ -395,59 +401,96 @@ pub(super) fn render(
             .fg(palette.accent)
             .add_modifier(Modifier::BOLD),
     );
+    let inner = Rect::new(
+        area.x + area.width.min(1),
+        area.y,
+        area.width.saturating_sub(2),
+        area.height,
+    );
     for (index, line) in lines.iter().skip(offset).take(rows).enumerate() {
         let y = area.y + 1 + index as u16;
+        let muted = Style::default().fg(palette.overlay1);
         match line {
-            Line::Text(text, bold) => {
-                let style = Style::default().fg(if *bold {
-                    palette.text
-                } else {
-                    palette.overlay0
-                });
+            Line::Rule => {
                 render::put_text(
                     buffer,
-                    area.x,
+                    inner.x,
                     y,
-                    area.width,
+                    inner.width,
+                    &"\u{2500}".repeat(usize::from(inner.width)),
+                    Style::default().fg(palette.surface1),
+                );
+            }
+            Line::Detail(text) => render::put_right_text(buffer, inner, y, text, muted),
+            Line::Pair(label, value) => {
+                let room = inner.width.saturating_sub(value.chars().count() as u16 + 1);
+                render::put_text(
+                    buffer,
+                    inner.x,
+                    y,
+                    room,
+                    label,
+                    Style::default().fg(palette.text),
+                );
+                render::put_right_text(buffer, inner, y, value, muted);
+            }
+            Line::Text(text, bold) => {
+                render::put_text(
+                    buffer,
+                    inner.x,
+                    y,
+                    inner.width,
                     text,
                     if *bold {
-                        style.add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .fg(palette.text)
+                            .add_modifier(Modifier::BOLD)
                     } else {
-                        style
+                        muted
                     },
                 );
             }
             Line::Bar(label, value) => {
-                let width = area.width.saturating_sub(10);
-                render::put_text(
-                    buffer,
-                    area.x,
-                    y,
-                    area.width.min(4),
-                    label,
-                    Style::default().fg(palette.overlay0),
-                );
+                render::put_text(buffer, inner.x, y, inner.width.min(3), label, muted);
+                let width = inner.width.saturating_sub(11);
                 let color = match value {
                     Some(v) if *v >= 90.0 => palette.red,
                     Some(v) if *v >= 70.0 => palette.yellow,
-                    _ => palette.green,
+                    _ => palette.teal,
                 };
-                let fill = value
-                    .map(|v| (v / 100.0 * f64::from(width)).round() as u16)
-                    .unwrap_or(0);
-                for column in 0..width {
-                    buffer[(area.x + 4 + column, y)]
-                        .set_symbol(if column < fill { "█" } else { "░" })
-                        .set_style(Style::default().fg(if column < fill {
-                            color
+                if width > 0 {
+                    let segments = width.div_ceil(2);
+                    let fill = value
+                        .map(|v| (v / 100.0 * f64::from(segments)).round() as u16)
+                        .unwrap_or(0);
+                    let mut bar = String::from("[");
+                    for column in 0..segments {
+                        if column > 0 {
+                            bar.push(' ');
+                        }
+                        bar.push(if column < fill {
+                            '\u{25aa}'
                         } else {
-                            palette.surface_dim
-                        }));
+                            '\u{25ab}'
+                        });
+                    }
+                    bar.push(']');
+                    render::put_text(
+                        buffer,
+                        inner.x + 4,
+                        y,
+                        width + 2,
+                        &bar,
+                        Style::default().fg(palette.overlay1),
+                    );
+                    for column in 0..fill {
+                        buffer[(inner.x + 5 + column * 2, y)].set_style(Style::default().fg(color));
+                    }
                 }
                 let value = value
                     .map(|v| format!("{v:.0}%"))
                     .unwrap_or_else(|| "?".into());
-                render::put_right_text(buffer, area, y, &value, Style::default().fg(color));
+                render::put_right_text(buffer, inner, y, &value, Style::default().fg(palette.text));
             }
         }
     }
@@ -462,6 +505,34 @@ impl ClientShellState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "manual native renderer proof from live monitor snapshot"]
+    fn monitor_export_native_render() {
+        let output = std::env::var("HERDR_MONITOR_RENDER_OUTPUT").unwrap();
+        let snapshot = read_snapshot(&snapshot_path()).unwrap();
+        let p = MonitorPanel {
+            snapshot: Some(snapshot),
+            ..Default::default()
+        };
+        let palette = Palette::catppuccin();
+        let area = Rect::new(0, 0, 36, 36);
+        let mut buffer = Buffer::empty(area);
+        for cell in &mut buffer.content {
+            cell.set_bg(palette.sidebar_bg);
+        }
+        render(&mut buffer, area, &p, &palette, &mut ShellHitMap::default());
+        let cells: Vec<_> = buffer.content.iter().map(|cell| serde_json::json!({
+            "symbol": cell.symbol(), "fg": format!("{:?}", cell.fg), "bg": format!("{:?}", cell.bg)
+        })).collect();
+        std::fs::write(
+            output,
+            serde_json::to_vec(
+                &serde_json::json!({"width":area.width,"height":area.height,"cells":cells}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    }
     fn sample() -> serde_json::Value {
         serde_json::json!({"version":1,"generated_at":"2026-11-13T12:00:00Z","poll_seconds":15,
             "hosts":[{"id":"sid-vm","status":"ok","sampled_at":"2026-11-13T12:00:00Z","cpu_percent":34.0,"memory_used_bytes":5368709120u64,"memory_total_bytes":8589934592u64,"load1":0.4,"cpu_count":4}],
@@ -479,7 +550,7 @@ mod tests {
             .lines()
             .iter()
             .filter_map(|line| match line {
-                Line::Text(text, _) => Some(text.as_str()),
+                Line::Text(text, _) | Line::Detail(text) => Some(text.as_str()),
                 _ => None,
             })
             .collect::<Vec<_>>()
@@ -527,6 +598,35 @@ mod tests {
         assert!(texts(&panel(value.clone())).contains("00:01:15"));
         value["temporary"]["resources"][0]["elapsed_basis"] = "unknown".into();
         assert!(texts(&panel(value)).contains("up unknown"));
+    }
+    #[test]
+    fn monitor_visual_sections_and_unknown_rental_are_explicit() {
+        let mut value = sample();
+        value["temporary"]["resources"] = serde_json::json!([{"label":"worker", "kind":"rented_cpu", "state":"running", "elapsed_seconds":65, "elapsed_basis":"created", "cpu_percent":null, "gpu_percent":null}]);
+        let p = panel(value);
+        assert_eq!(
+            p.lines()
+                .iter()
+                .filter(|line| matches!(line, Line::Rule))
+                .count(),
+            4
+        );
+        assert!(texts(&p).contains("usage unavailable"));
+        assert!(!p.lines().contains(&Line::Bar("CPU", None)));
+        let area = Rect::new(0, 0, 36, 36);
+        let mut buffer = Buffer::empty(area);
+        render(
+            &mut buffer,
+            area,
+            &p,
+            &Palette::catppuccin(),
+            &mut ShellHitMap::default(),
+        );
+        let symbols: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(symbols.contains('\u{25aa}'));
+        assert!(symbols.contains('\u{25ab}'));
+        assert!(symbols.contains('['));
+        assert!(!symbols.contains('\u{2588}'));
     }
     #[test]
     fn monitor_decode_bounds_and_clock_validation() {
