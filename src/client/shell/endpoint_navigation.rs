@@ -130,9 +130,7 @@ impl ClientShellState {
                 target: None,
             });
         } else {
-            let label = self.endpoint_label(&endpoint_id).to_owned();
-            self.receive_endpoint_unavailable(format!("{label} is not ready"));
-            outcome.repaint = true;
+            self.select_unready_machine(&endpoint_id, outcome);
         }
         true
     }
@@ -300,6 +298,19 @@ impl ClientShellState {
         false
     }
 
+    /// Selecting a machine that is waiting to reconnect asks for an attempt now.
+    fn select_unready_machine(
+        &mut self,
+        endpoint_id: &ClientEndpointId,
+        outcome: &mut ClientShellInput,
+    ) {
+        if !self.retry_machine(endpoint_id) {
+            let label = self.endpoint_label(endpoint_id).to_owned();
+            self.receive_endpoint_unavailable(format!("{label} is not ready"));
+        }
+        outcome.repaint = true;
+    }
+
     pub(super) fn activate_endpoint(
         &mut self,
         endpoint_id: ClientEndpointId,
@@ -309,9 +320,7 @@ impl ClientShellState {
         self.pending_agent_reveal = None;
         let online = self.endpoint_is_online(&endpoint_id);
         if !online && !endpoint_id.is_local() {
-            let label = self.endpoint_label(&endpoint_id).to_owned();
-            self.receive_endpoint_unavailable(format!("{label} is not ready"));
-            outcome.repaint = true;
+            self.select_unready_machine(&endpoint_id, outcome);
             return false;
         }
         if (endpoint_id.is_local() && (self.multi_endpoint_active() || !online))
@@ -343,9 +352,7 @@ impl ClientShellState {
         self.pending_agent_reveal = None;
         let online = self.endpoint_is_online(&endpoint_id);
         if !online && !endpoint_id.is_local() {
-            let label = self.endpoint_label(&endpoint_id).to_owned();
-            self.receive_endpoint_unavailable(format!("{label} is not ready"));
-            outcome.repaint = true;
+            self.select_unready_machine(&endpoint_id, outcome);
             return false;
         }
         // Local can still be displayed while a remote activation is pending.
