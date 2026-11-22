@@ -55,6 +55,7 @@ impl ResolvedToken {
 pub(crate) struct AgentTokenContext<'a> {
     pub(crate) machine: Option<&'a str>,
     pub(crate) workspace: &'a str,
+    pub(crate) session_title: &'a str,
     pub(crate) tab: Option<&'a str>,
     pub(crate) pane: Option<&'a str>,
     pub(crate) agent_label: Option<&'a str>,
@@ -88,9 +89,9 @@ pub(crate) fn agent_rows(
                         AgentSidebarToken::Workspace => {
                             Some(ResolvedTokenKind::Workspace(context.workspace.to_string()))
                         }
-                        AgentSidebarToken::SessionTitle => {
-                            Some(ResolvedTokenKind::Workspace(context.workspace.to_string()))
-                        }
+                        AgentSidebarToken::SessionTitle => Some(ResolvedTokenKind::Workspace(
+                            context.session_title.to_string(),
+                        )),
                         AgentSidebarToken::Tab => context
                             .tab
                             .map(|value| ResolvedTokenKind::Tab(value.to_string())),
@@ -205,6 +206,7 @@ mod tests {
 
     struct Entry {
         workspace: String,
+        session_title: Option<String>,
         tab: Option<String>,
         pane: Option<String>,
         agent_label: Option<String>,
@@ -217,6 +219,7 @@ mod tests {
     fn entry() -> Entry {
         Entry {
             workspace: "repo".into(),
+            session_title: None,
             tab: None,
             pane: None,
             agent_label: Some("pi".into()),
@@ -231,6 +234,7 @@ mod tests {
         AgentTokenContext {
             machine: None,
             workspace: &entry.workspace,
+            session_title: entry.session_title.as_deref().unwrap_or(&entry.workspace),
             tab: entry.tab.as_deref(),
             pane: entry.pane.as_deref(),
             agent_label: entry.agent_label.as_deref(),
@@ -258,6 +262,12 @@ mod tests {
             ResolvedTokenKind::Workspace("Workspace".into())
         );
         assert_eq!(rows.len(), 1);
+        entry.session_title = Some("Pane".into());
+        assert_eq!(
+            agent_rows(&config, context(&entry), "idle")[0][1].kind,
+            ResolvedTokenKind::Workspace("Pane".into())
+        );
+        entry.session_title = None;
         entry.tokens.insert("model".into(), "  ".into());
         let rows = agent_rows(&config, context(&entry), "idle");
         assert_eq!(rows.len(), 1);

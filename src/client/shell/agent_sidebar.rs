@@ -311,14 +311,26 @@ pub(super) fn agent_row_from(
         .agent
         .as_deref()
         .and_then(crate::detect::parse_agent_label);
+    let workspace_label = super::sidebar::workspace_display_label(
+        workspace,
+        super::sidebar::workspace_is_grouped_child(snapshot, workspace),
+    );
+    let session_title = if super::endpoint_sidebar::main_pane_id(snapshot, &agent.workspace_id)
+        == Some(agent.pane_id.as_str())
+    {
+        workspace_label
+    } else {
+        pane.and_then(|pane| pane.label.as_deref())
+            .or(agent.title.as_deref())
+            .or(agent.name.as_deref())
+            .unwrap_or(workspace_label)
+    };
     let rows = crate::ui::sidebar_agent_rows(
         &config.agents,
         crate::ui::AgentTokenContext {
             machine,
-            workspace: super::sidebar::workspace_display_label(
-                workspace,
-                super::sidebar::workspace_is_grouped_child(snapshot, workspace),
-            ),
+            workspace: workspace_label,
+            session_title,
             tab: tab_label,
             pane: agent
                 .title

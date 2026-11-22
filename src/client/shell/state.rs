@@ -319,6 +319,10 @@ pub(super) enum ClientRenameTarget {
     Workspace {
         workspace_id: String,
     },
+    EndpointWorkspace {
+        endpoint_id: ClientEndpointId,
+        workspace_id: String,
+    },
     NewTab {
         workspace_id: String,
         default_name: String,
@@ -329,6 +333,10 @@ pub(super) enum ClientRenameTarget {
         original_name: String,
     },
     Pane {
+        pane_id: String,
+    },
+    EndpointPane {
+        endpoint_id: ClientEndpointId,
         pane_id: String,
     },
 }
@@ -545,6 +553,15 @@ pub(super) enum ClientContextMenuAction {
 
 #[derive(Debug)]
 pub(super) enum ClientContextMenuTarget {
+    EndpointWorkspace {
+        endpoint_id: ClientEndpointId,
+        workspace_id: String,
+    },
+    EndpointPane {
+        endpoint_id: ClientEndpointId,
+        pane_id: String,
+        has_manual_label: bool,
+    },
     Workspace {
         workspace_id: String,
         is_git: bool,
@@ -918,6 +935,7 @@ pub(crate) struct ClientShellState {
     pub(super) agent_scroll: usize,
     pub(super) pending_agent_reveal: Option<(ClientEndpointId, String)>,
     pub(super) pending_machine_workspace: Option<ClientEndpointId>,
+    pub(super) pending_endpoint_rename: Option<(ClientEndpointId, crate::api::schema::Method)>,
     pub(super) tab_scroll: usize,
     pub(super) mobile_switcher_scroll: usize,
     pub(super) reveal_focused_workspace: bool,
@@ -1102,6 +1120,7 @@ impl ClientShellState {
             agent_scroll: 0,
             pending_agent_reveal: None,
             pending_machine_workspace: None,
+            pending_endpoint_rename: None,
             tab_scroll: 0,
             mobile_switcher_scroll: 0,
             reveal_focused_workspace: true,

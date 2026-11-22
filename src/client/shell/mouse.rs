@@ -1841,11 +1841,28 @@ impl ClientShellState {
                 if !self.config.mouse_capture {
                     return;
                 }
-                let workspace_id = (!self.sidebar_collapsed)
-                    .then(|| self.active_endpoint_workspace_at(point))
+                let workspace = (!self.sidebar_collapsed)
+                    .then(|| self.endpoint_workspace_at(point))
                     .flatten();
-                if let Some(workspace_id) = workspace_id {
-                    self.open_workspace_context_menu(workspace_id, mouse.column, mouse.row);
+                if let Some((endpoint_id, workspace_id)) = workspace {
+                    if endpoint_id == self.active_endpoint_id {
+                        self.open_workspace_context_menu(workspace_id, mouse.column, mouse.row);
+                    } else {
+                        self.open_endpoint_workspace_context_menu(
+                            endpoint_id, workspace_id, mouse.column, mouse.row);
+                    }
+                    outcome.repaint = true;
+                    return;
+                }
+                if let Some((_, endpoint_id, pane_id)) = self.hits.endpoint_agents.iter()
+                    .find(|(rect, _, _)| super::contains(*rect, point)).cloned()
+                {
+                    if endpoint_id == self.active_endpoint_id {
+                        self.open_pane_context_menu(pane_id, mouse.column, mouse.row);
+                    } else {
+                        self.open_endpoint_pane_context_menu(
+                            endpoint_id, pane_id, mouse.column, mouse.row);
+                    }
                     outcome.repaint = true;
                     return;
                 }

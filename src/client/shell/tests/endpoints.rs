@@ -155,6 +155,115 @@ fn unified_sidebar_keeps_multiple_panes_and_footer_controls() {
 }
 
 #[test]
+fn inactive_machine_workspace_context_renames_that_workspace() {
+    let (mut state, remote) = state_with_remote();
+    state.compose(100, 28).unwrap();
+    let rect = state.hits.workspaces.iter().find(|hit| hit.endpoint_id == remote).unwrap().rect;
+    let mut outcome = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Right),
+        column: rect.x + 2,
+        row: rect.y + 1,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert!(matches!(state.overlay, Some(ClientShellOverlay::ContextMenu(_))));
+    state.activate_context_menu_item(0, &mut outcome);
+    assert!(matches!(state.overlay, Some(ClientShellOverlay::Rename(_))));
+    state.save_rename_overlay(&mut outcome);
+    assert!(matches!(outcome.actions.as_slice(), [ClientShellAction::ActivateEndpoint { endpoint_id, target: None }] if endpoint_id == &remote));
+    assert!(state.activate_endpoint_projection(&remote));
+    let outcome = state.complete_machine_workspace();
+    assert!(outcome.actions.iter().any(|action| matches!(action,
+        ClientShellAction::Endpoint { endpoint_id, request, .. }
+        if endpoint_id == &remote && matches!(&request.method,
+            crate::api::schema::Method::WorkspaceRename(params)
+            if params.workspace_id == "ws_1" && params.label == "remote-workspace"))));
+}
+
+#[test]
+fn sub_session_context_renames_only_its_pane_and_shows_its_name() {
+    let (mut state, remote) = state_with_remote();
+    let mut projection = snapshot();
+    projection.boot_id = "remote-boot".into();
+    projection.workspaces[0].label = "Street".into();
+    projection.panes[0].label = Some("Main pane".into());
+    let mut sub = projection.panes[0].clone();
+    sub.pane_id = "pane_2".into();
+    sub.label = Some("Research".into());
+    sub.focused = false;
+    projection.panes.push(sub);
+    projection.agents = vec![agent("main", AgentStatus::Idle, 1), ClientShellAgent {
+        pane_id: "pane_2".into(),
+        focused: false,
+        ..agent("sub", AgentStatus::Idle, 2)
+    }];
+    state.set_endpoint_snapshot(&remote, Box::new(projection));
+    let frame = state.compose(100, 28).unwrap();
+    let card = state.hits.endpoint_agents.iter()
+        .find(|(_, endpoint, pane)| endpoint == &remote && pane == "pane_2")
+        .unwrap().0;
+    let rendered = frame_rows(&frame).join("\n");
+    assert!(rendered.contains("Street"));
+    assert!(rendered.contains("Research"));
+    assert!(!rendered.contains("Main pane"));
+    let mut outcome = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Right),
+        column: card.x + 2,
+        row: card.y + 1,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert!(matches!(state.overlay, Some(ClientShellOverlay::ContextMenu(_))));
+    state.activate_context_menu_item(0, &mut outcome);
+    assert!(matches!(state.overlay, Some(ClientShellOverlay::Rename(_))));
+    assert!(state.insert_overlay_text(" v2"));
+    state.save_rename_overlay(&mut outcome);
+    assert!(matches!(outcome.actions.as_slice(), [ClientShellAction::ActivateEndpoint { endpoint_id, target: None }] if endpoint_id == &remote));
+    assert!(state.activate_endpoint_projection(&remote));
+    let outcome = state.complete_machine_workspace();
+    assert!(outcome.actions.iter().any(|action| matches!(action,
+        ClientShellAction::Endpoint { endpoint_id, request, .. }
+        if endpoint_id == &remote && matches!(&request.method,
+            crate::api::schema::Method::PaneRename(params)
+            if params.pane_id == "pane_2" && params.label.as_deref() == Some("Research v2")))));
+}
+
+#[test]
+fn local_sub_session_context_renames_its_pane() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    let mut projection = snapshot();
+    let mut sub = projection.panes[0].clone();
+    sub.pane_id = "pane_2".into();
+    sub.focused = false;
+    projection.panes.push(sub);
+    projection.agents = vec![agent("main", AgentStatus::Idle, 1), ClientShellAgent {
+        pane_id: "pane_2".into(),
+        focused: false,
+        ..agent("sub", AgentStatus::Idle, 2)
+    }];
+    state.set_snapshot(Box::new(projection));
+    state.set_pane_surface(surface());
+    state.compose(100, 28).unwrap();
+    let card = state.hits.endpoint_agents.iter()
+        .find(|(_, endpoint, pane)| endpoint.is_local() && pane == "pane_2")
+        .unwrap().0;
+    let mut outcome = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Right),
+        column: card.x + 2,
+        row: card.y + 1,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert!(matches!(state.overlay, Some(ClientShellOverlay::ContextMenu(_))));
+    state.activate_context_menu_item(0, &mut outcome);
+    assert!(matches!(state.overlay, Some(ClientShellOverlay::Rename(_))));
+    assert!(state.insert_overlay_text("Sub name"));
+    state.save_rename_overlay(&mut outcome);
+    assert!(outcome.actions.iter().any(|action| matches!(action,
+        ClientShellAction::Endpoint { endpoint_id, request, .. }
+        if endpoint_id.is_local() && matches!(&request.method,
+            crate::api::schema::Method::PaneRename(params)
+            if params.pane_id == "pane_2" && params.label.as_deref() == Some("Sub name")))));
+}
+
+#[test]
 fn expanded_machine_keeps_main_and_sub_cards_stable_when_focus_changes() {
     let (mut state, remote) = state_with_remote();
     let mut projection = snapshot();
@@ -2504,7 +2613,7 @@ fn machine_click_activates_without_collapsing_sessions() {
 }
 
 #[test]
-fn context_menu_lookup_ignores_inactive_endpoint_workspaces() {
+fn context_menu_lookup_keeps_endpoint_with_workspace() {
     let (mut state, endpoint_id) = state_with_remote();
     state.compose(100, 28).expect("combined endpoint frame");
     let remote = state
@@ -2523,12 +2632,12 @@ fn context_menu_lookup_ignores_inactive_endpoint_workspaces() {
         .rect;
 
     assert_eq!(
-        state.active_endpoint_workspace_at((remote.x, remote.y)),
-        None
+        state.endpoint_workspace_at((remote.x, remote.y)),
+        Some((endpoint_id, "ws_1".into()))
     );
     assert_eq!(
-        state.active_endpoint_workspace_at((local.x, local.y)),
-        Some("ws_1".into())
+        state.endpoint_workspace_at((local.x, local.y)),
+        Some((ClientEndpointId::Local, "ws_1".into()))
     );
 }
 
@@ -3560,6 +3669,20 @@ fn machine_plus_preserves_name_prompt_and_cancels_stale_intent() {
             ..
         }))
     ));
+}
+
+#[test]
+fn pending_rename_does_not_run_after_a_different_machine_activates() {
+    let (mut state, remote) = state_with_remote();
+    let mut outcome = ClientShellInput::default();
+    state.request_endpoint_rename(remote,
+        crate::api::schema::Method::WorkspaceRename(crate::api::schema::WorkspaceRenameParams {
+            workspace_id: "ws_1".into(), label: "Remote name".into(),
+        }), &mut outcome);
+    assert!(matches!(outcome.actions.as_slice(), [ClientShellAction::ActivateEndpoint { .. }]));
+    state.retain_machine_workspace(&ClientEndpointId::Local, false);
+    assert!(state.pending_endpoint_rename.is_none());
+    assert!(state.complete_machine_workspace().actions.is_empty());
 }
 
 #[test]

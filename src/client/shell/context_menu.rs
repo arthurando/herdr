@@ -6,6 +6,18 @@ impl ClientContextMenuOverlay {
 
         let item = |label, action| ClientContextMenuItem { label, action };
         match &self.target {
+            ClientContextMenuTarget::EndpointWorkspace { .. } => {
+                vec![item("Rename", Action::Rename)]
+            }
+            ClientContextMenuTarget::EndpointPane {
+                has_manual_label, ..
+            } => {
+                let mut items = vec![item("Rename pane", Action::RenamePane)];
+                if *has_manual_label {
+                    items.push(item("Clear pane name", Action::ClearPaneName));
+                }
+                items
+            }
             ClientContextMenuTarget::Workspace { is_git: false, .. } => {
                 vec![item("Rename", Action::Rename), item("Close", Action::Close)]
             }
@@ -84,6 +96,69 @@ impl ClientContextMenuOverlay {
 }
 
 impl ClientShellState {
+    pub(super) fn open_endpoint_workspace_context_menu(
+        &mut self,
+        endpoint_id: ClientEndpointId,
+        workspace_id: String,
+        x: u16,
+        y: u16,
+    ) {
+        if !self.endpoint_is_online(&endpoint_id)
+            || !self.endpoints.iter().any(|endpoint| {
+                endpoint.endpoint_id == endpoint_id
+                    && endpoint.snapshot.as_deref().is_some_and(|snapshot| {
+                        snapshot
+                            .workspaces
+                            .iter()
+                            .any(|workspace| workspace.workspace_id == workspace_id)
+                    })
+            })
+        {
+            return;
+        }
+        self.overlay = Some(ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
+            target: ClientContextMenuTarget::EndpointWorkspace {
+                endpoint_id,
+                workspace_id,
+            },
+            x,
+            y,
+            highlighted: 0,
+        }));
+    }
+
+    pub(super) fn open_endpoint_pane_context_menu(
+        &mut self,
+        endpoint_id: ClientEndpointId,
+        pane_id: String,
+        x: u16,
+        y: u16,
+    ) {
+        if !self.endpoint_is_online(&endpoint_id) {
+            return;
+        }
+        let Some(pane) = self
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.endpoint_id == endpoint_id)
+            .and_then(|endpoint| endpoint.snapshot.as_deref())
+            .and_then(|snapshot| snapshot.panes.iter().find(|pane| pane.pane_id == pane_id))
+        else {
+            return;
+        };
+        let has_manual_label = pane.label.is_some();
+        self.overlay = Some(ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
+            target: ClientContextMenuTarget::EndpointPane {
+                endpoint_id,
+                pane_id,
+                has_manual_label,
+            },
+            x,
+            y,
+            highlighted: 0,
+        }));
+    }
+
     pub(super) fn open_workspace_context_menu(&mut self, workspace_id: String, x: u16, y: u16) {
         let Some(snapshot) = self.snapshot.as_deref() else {
             return;
@@ -192,6 +267,76 @@ impl ClientShellState {
             return;
         };
         match menu.target {
+            ClientContextMenuTarget::EndpointWorkspace {
+                endpoint_id,
+                workspace_id,
+            } => {
+                if action == ClientContextMenuAction::Rename {
+                    let label = self
+                        .endpoints
+                        .iter()
+                        .find(|endpoint| endpoint.endpoint_id == endpoint_id)
+                        .and_then(|endpoint| endpoint.snapshot.as_deref())
+                        .and_then(|snapshot| {
+                            snapshot
+                                .workspaces
+                                .iter()
+                                .find(|workspace| workspace.workspace_id == workspace_id)
+                        })
+                        .map(|workspace| workspace.label.clone());
+                    if let Some(label) = label {
+                        self.overlay = Some(ClientShellOverlay::Rename(ClientRenameOverlay {
+                            title: "rename workspace",
+                            input: TextEditor::new(&label, false),
+                            target: ClientRenameTarget::EndpointWorkspace {
+                                endpoint_id,
+                                workspace_id,
+                            },
+                        }));
+                    }
+                }
+            }
+            ClientContextMenuTarget::EndpointPane {
+                endpoint_id,
+                pane_id,
+                ..
+            } => {
+                let label = self
+                    .endpoints
+                    .iter()
+                    .find(|endpoint| endpoint.endpoint_id == endpoint_id)
+                    .and_then(|endpoint| endpoint.snapshot.as_deref())
+                    .and_then(|snapshot| snapshot.panes.iter().find(|pane| pane.pane_id == pane_id))
+                    .and_then(|pane| pane.label.clone());
+                match action {
+                    ClientContextMenuAction::RenamePane => {
+                        self.overlay = Some(ClientShellOverlay::Rename(ClientRenameOverlay {
+                            title: "rename pane",
+                            input: TextEditor::new(
+                                label.as_deref().unwrap_or_default(),
+                                label.is_none(),
+                            ),
+                            target: ClientRenameTarget::EndpointPane {
+                                endpoint_id,
+                                pane_id,
+                            },
+                        }));
+                    }
+                    ClientContextMenuAction::ClearPaneName => {
+                        self.request_endpoint_rename(
+                            endpoint_id,
+                            crate::api::schema::Method::PaneRename(
+                                crate::api::schema::PaneRenameParams {
+                                    pane_id,
+                                    label: Some(String::new()),
+                                },
+                            ),
+                            outcome,
+                        );
+                    }
+                    _ => {}
+                }
+            }
             ClientContextMenuTarget::Workspace {
                 workspace_id,
                 close_group,
