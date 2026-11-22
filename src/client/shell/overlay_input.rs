@@ -957,6 +957,43 @@ impl ClientShellState {
             return;
         };
         let trimmed = rename.input.trim();
+        match &rename.target {
+            ClientRenameTarget::EndpointWorkspace {
+                endpoint_id,
+                workspace_id,
+            } => {
+                if !trimmed.is_empty() {
+                    self.request_endpoint_rename(
+                        endpoint_id.clone(),
+                        crate::api::schema::Method::WorkspaceRename(
+                            crate::api::schema::WorkspaceRenameParams {
+                                workspace_id: workspace_id.clone(),
+                                label: trimmed.to_owned(),
+                            },
+                        ),
+                        outcome,
+                    );
+                }
+                outcome.repaint = true;
+                return;
+            }
+            ClientRenameTarget::EndpointPane {
+                endpoint_id,
+                pane_id,
+            } => {
+                self.request_endpoint_rename(
+                    endpoint_id.clone(),
+                    crate::api::schema::Method::PaneRename(crate::api::schema::PaneRenameParams {
+                        pane_id: pane_id.clone(),
+                        label: Some(trimmed.to_owned()),
+                    }),
+                    outcome,
+                );
+                outcome.repaint = true;
+                return;
+            }
+            _ => {}
+        }
         let method = match rename.target {
             ClientRenameTarget::NewWorkspace {
                 source_workspace_id,
@@ -1009,6 +1046,8 @@ impl ClientShellState {
                     label: Some(trimmed.to_owned()),
                 },
             )),
+            ClientRenameTarget::EndpointWorkspace { .. }
+            | ClientRenameTarget::EndpointPane { .. } => unreachable!(),
         };
         if let Some(method) = method {
             self.push_endpoint_method(method, outcome);

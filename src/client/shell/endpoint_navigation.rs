@@ -3,6 +3,11 @@ use super::*;
 impl ClientShellState {
     pub(crate) fn complete_machine_workspace(&mut self) -> ClientShellInput {
         let mut outcome = ClientShellInput::default();
+        if let Some((endpoint_id, method)) = self.pending_endpoint_rename.take() {
+            if endpoint_id == self.active_endpoint_id {
+                self.push_endpoint_method(method, &mut outcome);
+            }
+        }
         if self.pending_machine_workspace.take().as_ref() == Some(&self.active_endpoint_id) {
             self.record_binding(
                 crate::input::KeybindMatch::Action(crate::input::KeybindAction::NewWorkspace),
@@ -20,20 +25,41 @@ impl ClientShellState {
         if has_focus_target || self.pending_machine_workspace.as_ref() != Some(endpoint_id) {
             self.pending_machine_workspace = None;
         }
+        if has_focus_target || self.pending_endpoint_rename.as_ref().is_none_or(|(id, _)| id != endpoint_id) {
+            self.pending_endpoint_rename = None;
+        }
     }
 
     pub(crate) fn cancel_machine_workspace(&mut self) {
         self.pending_machine_workspace = None;
+        self.pending_endpoint_rename = None;
     }
 
-    pub(super) fn active_endpoint_workspace_at(&self, point: (u16, u16)) -> Option<String> {
+    pub(super) fn request_endpoint_rename(
+        &mut self, endpoint_id: ClientEndpointId, method: crate::api::schema::Method,
+        outcome: &mut ClientShellInput,
+    ) {
+        if !self.endpoint_is_online(&endpoint_id) {
+            let label = self.endpoint_label(&endpoint_id).to_owned();
+            outcome.repaint |= self.receive_endpoint_unavailable(format!("{label} is not ready"));
+        } else if endpoint_id == self.active_endpoint_id {
+            self.push_endpoint_method(method, outcome);
+        } else {
+            self.pending_machine_workspace = None;
+            self.pending_endpoint_rename = Some((endpoint_id.clone(), method));
+            outcome.actions.push(ClientShellAction::ActivateEndpoint { endpoint_id, target: None });
+        }
+    }
+
+    pub(super) fn endpoint_workspace_at(
+        &self,
+        point: (u16, u16),
+    ) -> Option<(ClientEndpointId, String)> {
         self.hits
             .workspaces
             .iter()
-            .find(|hit| {
-                hit.endpoint_id == self.active_endpoint_id && super::contains(hit.rect, point)
-            })
-            .map(|hit| hit.workspace_id.clone())
+            .find(|hit| super::contains(hit.rect, point))
+            .map(|hit| (hit.endpoint_id.clone(), hit.workspace_id.clone()))
     }
 
     pub(super) fn endpoint_workspace_is_draggable(&self, press: &ClientWorkspacePress) -> bool {
@@ -118,6 +144,7 @@ impl ClientShellState {
         }
         let create_workspace = super::contains(hit.new_workspace, point);
         self.pending_machine_workspace = None;
+        self.pending_endpoint_rename = None;
         if create_workspace {
             if !self.endpoint_is_online(&endpoint_id) {
                 let label = self.endpoint_label(&endpoint_id).to_owned();
