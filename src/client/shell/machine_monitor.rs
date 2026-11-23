@@ -477,32 +477,17 @@ pub(super) fn render(
                     _ => palette.teal,
                 };
                 if width > 0 {
-                    let segments = width.div_ceil(2);
                     let fill = value
-                        .map(|v| (v / 100.0 * f64::from(segments)).round() as u16)
+                        .map(|v| (v / 100.0 * f64::from(width)).round() as u16)
                         .unwrap_or(0);
-                    let mut bar = String::from("[");
-                    for column in 0..segments {
-                        if column > 0 {
-                            bar.push(' ');
-                        }
-                        bar.push(if column < fill {
-                            '\u{25aa}'
-                        } else {
-                            '\u{25ab}'
-                        });
-                    }
-                    bar.push(']');
-                    render::put_text(
-                        buffer,
-                        inner.x + 4,
-                        y,
-                        width + 2,
-                        &bar,
-                        Style::default().fg(palette.overlay1),
-                    );
-                    for column in 0..fill {
-                        buffer[(inner.x + 5 + column * 2, y)].set_style(Style::default().fg(color));
+                    for column in 0..width {
+                        buffer[(inner.x + 4 + column, y)]
+                            .set_symbol(if column < fill { "█" } else { "░" })
+                            .set_style(Style::default().fg(if column < fill {
+                                color
+                            } else {
+                                palette.surface_dim
+                            }));
                     }
                 }
                 let value = value
@@ -698,10 +683,10 @@ mod tests {
             &mut ShellHitMap::default(),
         );
         let symbols: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
-        assert!(symbols.contains('\u{25aa}'));
-        assert!(symbols.contains('\u{25ab}'));
-        assert!(symbols.contains('['));
-        assert!(!symbols.contains('\u{2588}'));
+        // At 36 columns the inner area leaves 23 adjacent cells for each bar.
+        assert!(symbols.contains("████████░░░░░░░░░░░░░░░"));
+        assert!(!symbols.contains('\u{25aa}'));
+        assert!(!symbols.contains('\u{25ab}'));
     }
     #[test]
     fn monitor_decode_bounds_and_clock_validation() {
