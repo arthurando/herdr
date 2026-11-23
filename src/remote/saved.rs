@@ -6,7 +6,9 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-use super::attach::{find_installed_remote_herdr, RemoteSsh, SshStdioBridge};
+use super::attach::{
+    find_cached_remote_herdr, find_installed_remote_herdr, RemoteSsh, SshStdioBridge,
+};
 
 pub(crate) struct SavedSshBridge {
     _bridge: SshStdioBridge,
@@ -26,7 +28,18 @@ pub(crate) fn connect_saved_ssh(
     let mut ssh = validated_saved_ssh(profile_id, target, session)?;
     ssh.cancelled = Arc::clone(&cancelled);
     ssh.prepare_shared_transport()?;
-    let remote_herdr = find_installed_remote_herdr(&ssh)?;
+    let metadata_cache =
+        crate::client::endpoint::SshMetadataCache::new(profile_id, target, session)?;
+    let remote_herdr = match metadata_cache.load() {
+        Some(metadata) => match find_cached_remote_herdr(&ssh, &metadata)? {
+            Some(remote) => remote,
+            None => {
+                metadata_cache.invalidate();
+                find_installed_remote_herdr(&ssh)?
+            }
+        },
+        None => find_installed_remote_herdr(&ssh)?,
+    };
     let metadata = remote_herdr.machine_metadata();
     if cancelled.load(Ordering::Acquire) {
         return Err(super::process::cancelled());
@@ -47,8 +60,7 @@ pub(crate) fn connect_saved_ssh(
         Instant::now() + Duration::from_secs(5),
     )?;
     if let Some(metadata) = metadata {
-        crate::client::endpoint::SshMetadataCache::new(profile_id, target, session)?
-            .store(&metadata);
+        metadata_cache.store(&metadata);
     }
     Ok(SavedSshStream {
         stream,
