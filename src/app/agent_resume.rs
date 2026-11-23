@@ -238,7 +238,8 @@ impl App {
             return false;
         }
 
-        let Some(resume_command) = shell_command_from_argv(&plan.argv) else {
+        let resume_argv = configured_resume_argv(&plan, &self.state.codex_executable);
+        let Some(resume_command) = shell_command_from_argv(&resume_argv) else {
             tracing::warn!(
                 pane = pane_id.raw(),
                 terminal = %terminal_id,
@@ -364,6 +365,21 @@ fn shell_command_from_argv(argv: &[String]) -> Option<String> {
     Some(command)
 }
 
+fn configured_resume_argv(
+    plan: &crate::agent_resume::AgentResumePlan,
+    codex_executable: &str,
+) -> Vec<String> {
+    let mut argv = plan.argv.clone();
+    if plan.agent == "codex" && argv.first().is_some_and(|program| program == "codex") {
+        argv[0] = crate::agent_resume::configured_agent_executable(
+            crate::detect::Agent::Codex,
+            codex_executable,
+        )
+        .to_string();
+    }
+    argv
+}
+
 fn shell_quote(value: &str) -> String {
     if value.is_empty() {
         return "''".to_string();
@@ -383,6 +399,36 @@ fn shell_quote(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_restore_uses_configured_executable_without_changing_other_agents() {
+        let codex = crate::agent_resume::plan(
+            "herdr:codex",
+            "codex",
+            &crate::agent_resume::AgentSessionRef::id("session-1").unwrap(),
+        )
+        .unwrap();
+        let executable = r"C:\Program Files\Codex Grey\codex.exe";
+        assert_eq!(
+            configured_resume_argv(&codex, executable),
+            vec![executable, "resume", "session-1"]
+        );
+        assert_eq!(
+            shell_command_from_argv(&configured_resume_argv(&codex, executable)).as_deref(),
+            Some("'C:\\Program Files\\Codex Grey\\codex.exe' resume session-1")
+        );
+        assert_eq!(
+            configured_resume_argv(&codex, ""),
+            vec!["codex", "resume", "session-1"]
+        );
+        let claude = crate::agent_resume::plan(
+            "herdr:claude",
+            "claude",
+            &crate::agent_resume::AgentSessionRef::id("session-2").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(configured_resume_argv(&claude, executable), claude.argv);
+    }
 
     #[cfg(unix)]
     fn test_app() -> App {
