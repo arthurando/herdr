@@ -481,6 +481,29 @@ pub(super) struct RemoteHerdr {
 }
 
 impl RemoteHerdr {
+    pub(super) fn from_machine_metadata(
+        metadata: &crate::client::endpoint::SshMachineMetadata,
+    ) -> Option<Self> {
+        if !metadata.is_valid() {
+            return None;
+        }
+        let os = match metadata.os.as_str() {
+            "linux" => "linux",
+            "macos" => "macos",
+            "windows" => "windows",
+            _ => return None,
+        };
+        let remote = Self::for_platform(RemotePlatform {
+            os,
+            arch: "unknown",
+        });
+        Some(if os == "windows" {
+            remote.with_windows_path(metadata.executable.clone())
+        } else {
+            remote.with_posix_path(&metadata.executable)
+        })
+    }
+
     pub(super) fn machine_metadata(&self) -> Option<crate::client::endpoint::SshMachineMetadata> {
         let executable = self.resolved_executable.clone()?;
         let metadata = crate::client::endpoint::SshMachineMetadata {
@@ -1600,6 +1623,23 @@ pub(super) fn find_installed_remote_herdr(ssh: &RemoteSsh) -> io::Result<RemoteH
             ssh.target()
         ),
     ))
+}
+
+pub(super) fn find_cached_remote_herdr(
+    ssh: &RemoteSsh,
+    metadata: &crate::client::endpoint::SshMachineMetadata,
+) -> io::Result<Option<RemoteHerdr>> {
+    let Some(mut remote) = RemoteHerdr::from_machine_metadata(metadata) else {
+        return Ok(None);
+    };
+    let Some(status) = remote_client_status(ssh, &remote)? else {
+        return Ok(None);
+    };
+    if !status.supports_endpoint_requirement(&remote.platform, true) {
+        return Ok(None);
+    }
+    remote.bridge_idle_timeout = status.remote_bridge_idle_timeout;
+    Ok(Some(remote))
 }
 
 fn prepare_windows_remote_herdr(
@@ -4984,6 +5024,26 @@ mod tests {
                 .executable,
             path
         );
+    }
+
+    #[test]
+    fn cached_remote_herdr_uses_validated_absolute_binary_path() {
+        let linux = crate::client::endpoint::SshMachineMetadata {
+            os: "linux".into(),
+            executable: "/home/agent/.local/bin/herdr".into(),
+        };
+        let remote = RemoteHerdr::from_machine_metadata(&linux).expect("valid Linux metadata");
+        assert_eq!(remote.machine_metadata(), Some(linux));
+        assert!(remote
+            .executable
+            .bridge_command("default")
+            .contains("/home/agent/.local/bin/herdr"));
+
+        let invalid = crate::client::endpoint::SshMachineMetadata {
+            os: "linux".into(),
+            executable: "herdr".into(),
+        };
+        assert!(RemoteHerdr::from_machine_metadata(&invalid).is_none());
     }
 
     #[test]

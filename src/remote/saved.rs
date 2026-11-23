@@ -6,7 +6,9 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-use super::attach::{find_installed_remote_herdr, RemoteSsh, SshStdioBridge};
+use super::attach::{
+    find_cached_remote_herdr, find_installed_remote_herdr, RemoteHerdr, RemoteSsh, SshStdioBridge,
+};
 
 pub(crate) struct SavedSshBridge {
     _bridge: SshStdioBridge,
@@ -26,7 +28,9 @@ pub(crate) fn connect_saved_ssh(
     let mut ssh = validated_saved_ssh(profile_id, target, session)?;
     ssh.cancelled = Arc::clone(&cancelled);
     ssh.prepare_shared_transport()?;
-    let remote_herdr = find_installed_remote_herdr(&ssh)?;
+    let metadata_cache =
+        crate::client::endpoint::SshMetadataCache::new(profile_id, target, session)?;
+    let remote_herdr = resolve_saved_remote_herdr(&ssh, &metadata_cache)?;
     let metadata = remote_herdr.machine_metadata();
     if cancelled.load(Ordering::Acquire) {
         return Err(super::process::cancelled());
@@ -47,12 +51,41 @@ pub(crate) fn connect_saved_ssh(
         Instant::now() + Duration::from_secs(5),
     )?;
     if let Some(metadata) = metadata {
-        crate::client::endpoint::SshMetadataCache::new(profile_id, target, session)?
-            .store(&metadata);
+        metadata_cache.store(&metadata);
     }
     Ok(SavedSshStream {
         stream,
         bridge: SavedSshBridge { _bridge: bridge },
+    })
+}
+
+fn resolve_saved_remote_herdr(
+    ssh: &RemoteSsh,
+    metadata_cache: &crate::client::endpoint::SshMetadataCache,
+) -> io::Result<RemoteHerdr> {
+    resolve_saved_remote_herdr_with(
+        metadata_cache,
+        |metadata| find_cached_remote_herdr(ssh, metadata),
+        || find_installed_remote_herdr(ssh),
+    )
+}
+
+fn resolve_saved_remote_herdr_with(
+    metadata_cache: &crate::client::endpoint::SshMetadataCache,
+    validate: impl FnOnce(
+        &crate::client::endpoint::SshMachineMetadata,
+    ) -> io::Result<Option<RemoteHerdr>>,
+    discover: impl FnOnce() -> io::Result<RemoteHerdr>,
+) -> io::Result<RemoteHerdr> {
+    Ok(match metadata_cache.load() {
+        Some(metadata) => match validate(&metadata)? {
+            Some(remote) => remote,
+            None => {
+                metadata_cache.invalidate();
+                discover()?
+            }
+        },
+        None => discover()?,
     })
 }
 
@@ -211,6 +244,83 @@ fn validate_profile_path_id(profile_id: &str) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_resolution_handles_hit_and_stale_metadata() {
+        const CHILD_CASE: &str = "HERDR_SAVED_CACHE_TEST_CASE";
+        if let Ok(case) = std::env::var(CHILD_CASE) {
+            let cached = crate::client::endpoint::SshMachineMetadata {
+                os: "windows".into(),
+                executable: r"C:\cached\herdr.exe".into(),
+            };
+            let fresh = crate::client::endpoint::SshMachineMetadata {
+                os: "windows".into(),
+                executable: r"C:\fresh\herdr.exe".into(),
+            };
+            let cache = crate::client::endpoint::SshMetadataCache::new(
+                "0123456789abcdef0123456789abcdef",
+                "test-host",
+                "default",
+            )
+            .unwrap();
+            cache.store(&cached);
+            let mut validations = 0;
+            let mut discoveries = 0;
+            let remote = resolve_saved_remote_herdr_with(
+                &cache,
+                |metadata| {
+                    validations += 1;
+                    assert_eq!(metadata, &cached);
+                    Ok((case == "hit")
+                        .then(|| RemoteHerdr::from_machine_metadata(metadata).unwrap()))
+                },
+                || {
+                    discoveries += 1;
+                    Ok(RemoteHerdr::from_machine_metadata(&fresh).unwrap())
+                },
+            )
+            .unwrap();
+            assert_eq!(validations, 1);
+            match case.as_str() {
+                "hit" => {
+                    assert_eq!(discoveries, 0);
+                    assert_eq!(remote.machine_metadata(), Some(cached.clone()));
+                    assert_eq!(cache.load(), Some(cached));
+                }
+                "stale" => {
+                    assert_eq!(discoveries, 1);
+                    assert_eq!(remote.machine_metadata(), Some(fresh));
+                    assert_eq!(cache.load(), None);
+                }
+                _ => panic!("unexpected cache test case"),
+            }
+            return;
+        }
+
+        let root = std::env::temp_dir().join(format!(
+            "herdr-saved-cache-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        for case in ["hit", "stale"] {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .arg("cached_resolution_handles_hit_and_stale_metadata")
+                .arg("--nocapture")
+                .env(CHILD_CASE, case)
+                .env("XDG_STATE_HOME", root.join(case))
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{case}: {}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+        }
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn bridge_paths_use_profile_identity_not_target_or_session() {
