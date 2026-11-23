@@ -481,7 +481,7 @@ pub(super) struct RemoteHerdr {
 }
 
 impl RemoteHerdr {
-    fn from_machine_metadata(
+    pub(super) fn from_machine_metadata(
         metadata: &crate::client::endpoint::SshMachineMetadata,
     ) -> Option<Self> {
         if !metadata.is_valid() {
