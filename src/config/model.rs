@@ -254,6 +254,8 @@ pub enum ShellModeConfig {
 pub struct TerminalConfig {
     /// Executable used for new interactive panes. Empty means SHELL, then /bin/sh.
     pub default_shell: String,
+    /// Executable for Herdr-managed Codex starts and restores. Empty uses `codex` from PATH.
+    pub codex_executable: String,
     /// Startup mode for new interactive pane shells.
     pub shell_mode: ShellModeConfig,
     /// CWD policy for new interactive panes, tabs, and workspaces.

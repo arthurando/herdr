@@ -75,6 +75,15 @@ default_shell = "nu"
 
 When unset or empty, Herdr uses `$SHELL`, then `/bin/sh` on Unix. On Windows it uses `pwsh.exe` (PowerShell 7) when it resolves on `PATH`, and otherwise the inbox `powershell.exe` (Windows PowerShell 5.1). This is an executable name or path, not a shell command line. Existing panes keep their current shell until they are recreated. Custom command keybinding strings run through `/bin/sh -c` for pane commands and `/bin/sh -lc` for detached commands on Unix; on Windows they run through `cmd.exe /d /c`.
 
+To run a specific Codex CLI from Herdr-managed agent starts and session restores, set its executable path:
+
+```toml
+[terminal]
+codex_executable = 'C:\Program Files\Codex\codex.exe'
+```
+
+An empty value uses `codex` from `PATH`. This setting does not replace the system Codex executable or change agents already running in panes. Reload the server configuration to apply it to future starts and restores.
+
 Set how Herdr starts newly created interactive pane shells:
 
 ```toml

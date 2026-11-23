@@ -7,6 +7,45 @@ const MAX_SESSION_PATH_LEN: usize = 4096;
 const MAX_RESUME_ARGS: usize = 64;
 const MAX_RESUME_ARGV_BYTES: usize = 8192;
 
+pub fn configured_agent_executable<'a>(
+    agent: crate::detect::Agent,
+    codex_executable: &'a str,
+) -> &'a str {
+    if agent == crate::detect::Agent::Codex && !codex_executable.is_empty() {
+        codex_executable
+    } else {
+        crate::detect::interactive_agent_executable(agent)
+    }
+}
+
+#[cfg(test)]
+mod configured_executable_tests {
+    use super::*;
+
+    #[test]
+    fn codex_start_uses_configured_executable_and_defaults_to_path() {
+        let executable = r"C:\Program Files\Codex Grey\codex.exe";
+        assert_eq!(
+            configured_agent_executable(crate::detect::Agent::Codex, executable),
+            executable
+        );
+        assert_eq!(
+            configured_agent_executable(crate::detect::Agent::Codex, ""),
+            "codex"
+        );
+        assert_eq!(
+            configured_agent_executable(crate::detect::Agent::Claude, executable),
+            "claude"
+        );
+        let config: crate::config::Config = toml::from_str(&format!(
+            "[terminal]\ncodex_executable = \"{}\"",
+            executable.replace('\\', "\\\\")
+        ))
+        .unwrap();
+        assert_eq!(config.terminal.codex_executable, executable);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentSessionRef {
     pub kind: AgentSessionRefKind,
