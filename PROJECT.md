@@ -277,6 +277,16 @@ by endpoint identity in client chrome preferences. Omen replaces the local machi
 SID profiles follow other remote machines and start collapsed when no saved choice exists.
 Keyboard session navigation can reveal a hidden target. No server or protocol change is required.
 
+## Deferred agent restore
+
+Deferred agent restore in a Windows PowerShell pane uses the same launcher
+as explicit agent start. The launcher invokes the configured Codex executable
+with its saved arguments, including when the executable path has spaces.
+
+Verify with `python scripts/test_windows_deferred_resume.py <herdr.exe>`.
+The test starts an isolated server and checks the arguments received by a
+native probe executable.
+
 ## Native build cache in nested worktrees
 
 Cargo merges .cargo/config.toml arrays from a task worktree and its parent repository.
