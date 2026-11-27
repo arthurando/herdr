@@ -239,7 +239,14 @@ impl App {
         }
 
         let resume_argv = configured_resume_argv(&plan, &self.state.codex_executable);
-        let Some(resume_command) = shell_command_from_argv(&resume_argv) else {
+        let shell_config =
+            crate::pane::PaneShellConfig::new(&self.state.default_shell, self.state.shell_mode);
+        let resume_command = if crate::pane::uses_windows_powershell_pane_shell(shell_config) {
+            crate::platform::interactive_shell_command(&resume_argv, "powershell")
+        } else {
+            shell_command_from_argv(&resume_argv)
+        };
+        let Some(resume_command) = resume_command else {
             tracing::warn!(
                 pane = pane_id.raw(),
                 terminal = %terminal_id,
@@ -272,7 +279,7 @@ impl App {
             self.state.pane_scrollback_limit_bytes,
             host_terminal_theme,
             self.pane_host_terminal_appearance(),
-            crate::pane::PaneShellConfig::new(&self.state.default_shell, self.state.shell_mode),
+            shell_config,
             &launch_env,
             self.event_tx.clone(),
             self.render_notify.clone(),
